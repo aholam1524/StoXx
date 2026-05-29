@@ -1,0 +1,19 @@
+universe: sp500
+top_n: 10
+
+# Skip tickers below this market cap (USD)
+min_market_cap: 1_000_000_000
+
+filters:
+  require_positive_trailing_pe: true
+  max_trailing_pe: 60
+  max_price_to_book: 8
+  require_positive_revenue_growth: false
+
+scoring:
+  # Higher weight = more influence on rank (relative-to-sector cheapness)
+  trailing_pe: 0.45
+  price_to_book: 0.35
+  peg_ratio: 0.20
+  # Bonus added to score when classic Graham thresholds are met
+  graham_bonus: 0.15

@@ -1,0 +1,177 @@
+{
+  "generated_at": "2026-05-29T13:10:28.533721+00:00",
+  "universe": "sp500",
+  "symbol_count": 503,
+  "fetched_count": 503,
+  "disclaimer": "Not financial advice. For research only. Data from Yahoo Finance may be delayed or incomplete.",
+  "candidates": [
+    {
+      "symbol": "BRK-B",
+      "name": "Berkshire Hathaway Inc.",
+      "sector": "Unknown",
+      "score": 1044.465,
+      "trailing_pe": 14.204701,
+      "price_to_book": 0.00094434,
+      "peg_ratio": null,
+      "market_cap": 1029725159424.0,
+      "current_price": 477.42,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "CI",
+      "name": "The Cigna Group",
+      "sector": "Unknown",
+      "score": 4.4248,
+      "trailing_pe": 2.5000439,
+      "price_to_book": 1.782365,
+      "peg_ratio": null,
+      "market_cap": 75214495744.0,
+      "current_price": 284.33,
+      "graham_match": false,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median"
+      ]
+    },
+    {
+      "symbol": "CHTR",
+      "name": "Charter Communications, Inc.",
+      "sector": "Unknown",
+      "score": 3.4711,
+      "trailing_pe": 3.9843073,
+      "price_to_book": 1.1053232,
+      "peg_ratio": null,
+      "market_cap": 20789925888.0,
+      "current_price": 147.26,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "CMCSA",
+      "name": "Comcast Corporation",
+      "sector": "Unknown",
+      "score": 3.0788,
+      "trailing_pe": 4.9333334,
+      "price_to_book": 1.0194902,
+      "peg_ratio": null,
+      "market_cap": 89877274624.0,
+      "current_price": 25.16,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "EG",
+      "name": "Everest Group, Ltd.",
+      "sector": "Unknown",
+      "score": 2.7131,
+      "trailing_pe": 6.783999,
+      "price_to_book": 0.8673437,
+      "peg_ratio": null,
+      "market_cap": 13186444288.0,
+      "current_price": 333.23,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "ALL",
+      "name": "The Allstate Corporation",
+      "sector": "Unknown",
+      "score": 2.6569,
+      "trailing_pe": 4.5848265,
+      "price_to_book": 1.8063302,
+      "peg_ratio": null,
+      "market_cap": 53358211072.0,
+      "current_price": 207.28,
+      "graham_match": false,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median"
+      ]
+    },
+    {
+      "symbol": "UHS",
+      "name": "Universal Health Services, Inc.",
+      "sector": "Unknown",
+      "score": 2.5032,
+      "trailing_pe": 6.270676,
+      "price_to_book": 1.2173997,
+      "peg_ratio": null,
+      "market_cap": 9087717376.0,
+      "current_price": 150.12,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "EXE",
+      "name": "Expand Energy Corporation",
+      "sector": "Unknown",
+      "score": 2.3974,
+      "trailing_pe": 6.9635415,
+      "price_to_book": 1.1495706,
+      "peg_ratio": null,
+      "market_cap": 22389426176.0,
+      "current_price": 93.59,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "ACGL",
+      "name": "Arch Capital Group Ltd.",
+      "sector": "Unknown",
+      "score": 2.2602,
+      "trailing_pe": 6.974615,
+      "price_to_book": 1.3644024,
+      "peg_ratio": null,
+      "market_cap": 31679154176.0,
+      "current_price": 90.67,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    },
+    {
+      "symbol": "VICI",
+      "name": "VICI Properties Inc.",
+      "sector": "Unknown",
+      "score": 2.065,
+      "trailing_pe": 9.702055,
+      "price_to_book": 1.0743676,
+      "peg_ratio": null,
+      "market_cap": 30505181184.0,
+      "current_price": 28.33,
+      "graham_match": true,
+      "reasons": [
+        "trailing P/E below sector median",
+        "P/B below sector median",
+        "meets classic Graham thresholds (P/E<15, P/B<1.5)"
+      ]
+    }
+  ]
+}
