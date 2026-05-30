@@ -39,14 +39,24 @@ def _market_cap(value: float | None) -> str:
     return f"${value:,.0f}"
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
     observations: list[str] = []
     return_1d = candidate.get("return_1d")
     return_5d = candidate.get("return_5d")
     volume_ratio = candidate.get("volume_ratio_5d")
+    volume_ratio_20d = candidate.get("volume_ratio_20d")
     distance_high = candidate.get("distance_from_5d_high")
     rsi = candidate.get("rsi_14")
-
+    rel_spy = candidate.get("rel_strength_spy_5d")
+    rel_qqq = candidate.get("rel_strength_qqq_5d")
+    atr = candidate.get("atr_14_pct")
     if return_1d is not None:
         if return_1d > 0:
             observations.append(f"Latest session was positive at {_pct(return_1d)}.")
@@ -61,56 +71,95 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(
             f"Latest volume is {_num(volume_ratio)}x the prior 5-day average."
         )
+    if volume_ratio_20d is not None:
+        observations.append(
+            f"Latest volume is {_num(volume_ratio_20d)}x the prior 20-day average."
+        )
     if distance_high is not None:
         observations.append(f"Price is {_pct(distance_high)} from the 5-day high.")
     if rsi is not None:
         observations.append(f"RSI 14 is {_num(rsi)}.")
+    if rel_spy is not None:
+        observations.append(f"5-day relative strength vs SPY is {_pct(rel_spy)}.")
+    if rel_qqq is not None:
+        observations.append(f"5-day relative strength vs QQQ is {_pct(rel_qqq)}.")
+    if atr is not None:
+        observations.append(f"ATR 14 is {_pct(atr)} of price.")
     observations.extend(candidate.get("reasons") or [])
     return observations
 
 
-def _risk_observations(candidate: dict[str, Any]) -> list[str]:
-    risks: list[str] = []
-    return_1d = candidate.get("return_1d")
+def _proposal_highlights(candidate: dict[str, Any]) -> list[str]:
+    highlights: list[str] = []
     return_5d = candidate.get("return_5d")
     volume_ratio = candidate.get("volume_ratio_5d")
+    volume_ratio_20d = candidate.get("volume_ratio_20d")
+    rel_spy = candidate.get("rel_strength_spy_5d")
+    rel_qqq = candidate.get("rel_strength_qqq_5d")
     rsi = candidate.get("rsi_14")
+    distance_high = candidate.get("distance_from_5d_high")
 
-    if return_1d is not None and return_1d > 0.08:
-        risks.append("Large latest-session move can invite short-term profit taking.")
-    if return_5d is not None and return_5d > 0.15:
-        risks.append("Large 5-day move increases pullback risk.")
-    if volume_ratio is not None and volume_ratio > 2.5:
-        risks.append("Very high relative volume can reverse quickly after the burst fades.")
-    if rsi is not None and rsi > 70:
-        risks.append("RSI is elevated above 70, so the setup may be stretched.")
-    if not risks:
+    if return_5d is not None:
+        highlights.append(f"Five-day return is {_pct(return_5d)}.")
+    if rel_spy is not None:
+        highlights.append(f"5-day relative strength vs SPY is {_pct(rel_spy)}.")
+    if rel_qqq is not None:
+        highlights.append(f"5-day relative strength vs QQQ is {_pct(rel_qqq)}.")
+    if volume_ratio is not None:
+        highlights.append(f"Latest volume is {_num(volume_ratio)}x the prior 5-day average.")
+    if volume_ratio_20d is not None:
+        highlights.append(f"Latest volume is {_num(volume_ratio_20d)}x the prior 20-day average.")
+    if distance_high is not None:
+        highlights.append(f"Price is {_pct(distance_high)} from the 5-day high.")
+    if rsi is not None:
+        highlights.append(f"RSI 14 is {_num(rsi)}.")
+
+    return highlights[:5] or ["Short-term composite score ranked highly."]
+
+
+def _risk_observations(candidate: dict[str, Any]) -> list[str]:
+    risks: list[str] = []
+    risk_score = candidate.get("risk_score")
+    risk_flags = candidate.get("risk_flags") or []
+
+    for flag in risk_flags:
+        if flag != "no major short-term risk flags":
+            risks.append(flag)
+
+    if risk_score is not None:
+        risks.append(f"Risk score is {_num(risk_score)} on a 0 to 1 scale.")
+    deduped = list(dict.fromkeys(risks))
+    if not deduped:
         risks.append("Main invalidation is loss of positive momentum or fading relative volume.")
-    return risks
+        return risks
+    return deduped
 
 
 def _deterministic_proposal(candidate: dict[str, Any]) -> str:
-    observations = _allowed_observations(candidate)
+    observations = _proposal_highlights(candidate)
     risks = _risk_observations(candidate)
     symbol = candidate.get("symbol")
     name = candidate.get("name")
+    setup_type = candidate.get("setup_type") or "short-term"
+    article = "an" if setup_type[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
 
-    why = observations[:3] if observations else ["Short-term composite score ranked highly."]
-    risk_lines = risks[:3]
+    why = observations[:5] if observations else ["Short-term composite score ranked highly."]
+    risk_lines = risks[:4]
 
     return "\n".join(
         [
             f"### {symbol} - {name}",
-            f"**Setup:** {symbol} is a short-term candidate based on the current 1-day to 1-week screen. "
-            f"The setup is driven by recent price action, relative volume, and proximity to the 5-day high.",
+            f"**Setup:** {symbol} is {article} {setup_type} candidate based on the current 1-day to 1-week screen. "
+            f"The setup is driven by recent price action, relative volume, market-relative strength, and risk flags.",
             "",
             "**Why it screens well:**",
             *[f"- {item}" for item in why],
+            f"- Opportunity score is {_num(candidate.get('opportunity_score'))}; risk score is {_num(candidate.get('risk_score'))}.",
             "",
             "**1-day to 1-week plan:**",
-            "- Watch whether positive momentum continues instead of fading after the recent move.",
+            "- Watch whether the stock continues to outperform SPY/QQQ over the next session.",
             "- Watch whether relative volume stays supportive; fading volume weakens the setup.",
-            "- Treat a loss of momentum combined with fading relative volume as invalidation.",
+            "- Treat loss of momentum plus fading relative volume as invalidation.",
             "",
             "**Main risks:**",
             *[f"- {item}" for item in risk_lines],
@@ -168,7 +217,18 @@ Candidate facts:
 - Latest volume vs prior 5-day average: {_num(candidate.get("volume_ratio_5d"))}x
 - Distance from 5-day high: {_pct(candidate.get("distance_from_5d_high"))}
 - Distance from 5-day low: {_pct(candidate.get("distance_from_5d_low"))}
+- 20-day return: {_pct(candidate.get("return_20d"))}
+- Latest volume vs prior 20-day average: {_num(candidate.get("volume_ratio_20d"))}x
+- Gap from previous close to latest open: {_pct(candidate.get("gap_1d"))}
+- ATR 14 as pct of price: {_pct(candidate.get("atr_14_pct"))}
 - RSI 14: {_num(candidate.get("rsi_14"))}
+- 5-day relative strength vs SPY: {_pct(candidate.get("rel_strength_spy_5d"))}
+- 5-day relative strength vs QQQ: {_pct(candidate.get("rel_strength_qqq_5d"))}
+- Setup type: {candidate.get("setup_type")}
+- Opportunity score: {_num(candidate.get("opportunity_score"))}
+- Risk score: {_num(candidate.get("risk_score"))}
+- Risk flags: {", ".join(candidate.get("risk_flags") or [])}
+- Upcoming earnings days: {_num(candidate.get("upcoming_earnings_days"))}
 - Valuation context: trailing P/E {_num(candidate.get("trailing_pe"))}, P/B {_num(candidate.get("price_to_book"))}
 - Screener signals: {reasons}
 
@@ -216,7 +276,7 @@ def generate_short_term_proposals(
         "",
         f"Generated at: {datetime.now(timezone.utc).isoformat()}",
         f"Model: `{model}`",
-        f"Source: `{input_path}`",
+        f"Source: `{_display_path(input_path)}`",
         "",
         DISCLAIMER,
         "",
@@ -263,7 +323,7 @@ def generate_short_term_proposals(
             {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "model": model,
-                "input": str(input_path),
+                "input": _display_path(input_path),
                 "disclaimer": DISCLAIMER,
                 "proposals": proposals,
             },

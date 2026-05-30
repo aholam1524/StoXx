@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import time
 from typing import Callable, Iterable
 
@@ -37,6 +38,14 @@ def _safe_float(value: object) -> float | None:
     return result
 
 
+def _earnings_days(value: object) -> float | None:
+    timestamp = _safe_float(value)
+    if timestamp is None:
+        return None
+    now = datetime.now(timezone.utc).timestamp()
+    return (timestamp - now) / 86_400
+
+
 def load_demo_metrics(path) -> list[StockMetrics]:
     import json
     from pathlib import Path
@@ -57,6 +66,7 @@ def load_demo_metrics(path) -> list[StockMetrics]:
             debt_to_equity=row.get("debt_to_equity"),
             free_cashflow=row.get("free_cashflow"),
             current_price=row.get("current_price"),
+            upcoming_earnings_days=row.get("upcoming_earnings_days"),
         )
         for row in payload
     ]
@@ -95,6 +105,9 @@ def _quote_item_to_metrics(item: dict) -> StockMetrics | None:
         debt_to_equity=_safe_float(item.get("debtToEquity")),
         free_cashflow=None,
         current_price=price,
+        upcoming_earnings_days=_earnings_days(
+            item.get("earningsTimestamp") or item.get("earningsTimestampStart")
+        ),
     )
 
 
@@ -163,6 +176,9 @@ def fetch_metrics(symbol: str) -> StockMetrics | None:
         free_cashflow=_safe_float(info.get("freeCashflow")),
         current_price=_safe_float(
             info.get("currentPrice") or info.get("regularMarketPrice")
+        ),
+        upcoming_earnings_days=_earnings_days(
+            info.get("earningsTimestamp") or info.get("earningsTimestampStart")
         ),
     )
 
