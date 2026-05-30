@@ -38,6 +38,18 @@ def format_market_cap(value: float | None) -> str:
     return f"${value:,.0f}"
 
 
+def _format_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 100:.2f}%"
+
+
+def _format_number(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"
+
+
 def print_results(candidates: list, top_n: int) -> None:
     print(f"\n{DISCLAIMER}\n")
     print(f"Top {min(top_n, len(candidates))} potentially undervalued S&P 500 names:\n")
@@ -61,6 +73,32 @@ def print_results(candidates: list, top_n: int) -> None:
         print()
 
 
+def print_short_term_results(candidates: list, top_n: int) -> None:
+    print(f"\n{DISCLAIMER}\n")
+    print(
+        f"Top {min(top_n, len(candidates))} short-term S&P 500 candidates "
+        "(1-day to 1-week window):\n"
+    )
+    header = (
+        f"{'Rank':<5} {'Symbol':<8} {'Score':<7} {'1D':<9} {'5D':<9} "
+        f"{'Vol x':<8} {'5D High':<9} {'RSI':<7} {'Mkt Cap':<10}"
+    )
+    print(header)
+    print("-" * len(header))
+
+    for rank, c in enumerate(candidates[:top_n], start=1):
+        print(
+            f"{rank:<5} {c.symbol:<8} {c.score:<7.3f} "
+            f"{_format_percent(c.return_1d):<9} {_format_percent(c.return_5d):<9} "
+            f"{_format_number(c.volume_ratio_5d):<8} "
+            f"{_format_percent(c.distance_from_5d_high):<9} "
+            f"{_format_number(c.rsi_14):<7} {format_market_cap(c.market_cap):<10}"
+        )
+        print(f"       {c.name}")
+        print(f"       Signals: {', '.join(c.reasons)}")
+        print()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Screen S&P 500 for relatively undervalued US stocks (free data)."
@@ -76,6 +114,12 @@ def main() -> int:
         type=int,
         default=None,
         help="Number of results to show (default: config top_n)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("value", "short-term"),
+        default="value",
+        help="Ranking mode: value or short-term (default: value)",
     )
     parser.add_argument(
         "--limit",
@@ -117,12 +161,14 @@ def main() -> int:
     configure_ssl(insecure=args.insecure_ssl)
 
     from src.data.fetcher import fetch_many, init_yfinance_session, load_demo_metrics  # noqa: E402
+    from src.data.prices import enrich_short_term_metrics  # noqa: E402
     from src.data.sp500 import load_sp500_symbols  # noqa: E402
-    from src.screen.scorer import score_candidates  # noqa: E402
+    from src.screen.scorer import score_candidates, score_short_term_candidates  # noqa: E402
 
     config = load_config(args.config)
     top_n = args.top if args.top is not None else int(config.get("top_n", 10))
     scoring = config.get("scoring", {})
+    short_term_scoring = config.get("short_term_scoring", {})
     filters = {**config.get("filters", {}), "min_market_cap": config.get("min_market_cap")}
 
     if args.demo:
@@ -157,18 +203,32 @@ def main() -> int:
             )
             return 1
 
-    scored = score_candidates(rows, scoring=scoring, filters=filters)
+    if args.mode == "short-term":
+        print("Fetching recent prices for short-term indicators...")
+        rows = enrich_short_term_metrics(rows)
+        scored = score_short_term_candidates(
+            rows,
+            scoring=short_term_scoring,
+            filters=filters,
+        )
+    else:
+        scored = score_candidates(rows, scoring=scoring, filters=filters)
+
     if not scored:
         print("No candidates passed filters. Try relaxing config.yaml filters.")
         return 1
 
-    print_results(scored, top_n)
+    if args.mode == "short-term":
+        print_short_term_results(scored, top_n)
+    else:
+        print_results(scored, top_n)
 
     if not args.no_save:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "universe": "sp500",
+            "mode": args.mode,
             "symbol_count": len(symbols),
             "fetched_count": len(rows),
             "disclaimer": DISCLAIMER,
