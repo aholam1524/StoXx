@@ -44,10 +44,11 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
         f"- Price: {_num(candidate.get('current_price'))}; market cap: {_market_cap(candidate.get('market_cap'))}.",
-        f"- Returns: 1D {_pct(candidate.get('return_1d'))}, 5D {_pct(candidate.get('return_5d'))}, 20D {_pct(candidate.get('return_20d'))}.",
+        f"- Returns: 1D {_pct(candidate.get('return_1d'))}, 5D {_pct(candidate.get('return_5d'))}, 10D {_pct(candidate.get('return_10d'))}, 20D {_pct(candidate.get('return_20d'))}.",
         f"- Relative strength: SPY 1D {_pct(candidate.get('rel_strength_spy_1d'))}, SPY 5D {_pct(candidate.get('rel_strength_spy_5d'))}, QQQ 1D {_pct(candidate.get('rel_strength_qqq_1d'))}, QQQ 5D {_pct(candidate.get('rel_strength_qqq_5d'))}.",
-        f"- Volume: 5D ratio {_num(candidate.get('volume_ratio_5d'))}x, 20D ratio {_num(candidate.get('volume_ratio_20d'))}x.",
-        f"- Range/volatility: 5D high distance {_pct(candidate.get('distance_from_5d_high'))}, 5D low distance {_pct(candidate.get('distance_from_5d_low'))}, ATR14 {_pct(candidate.get('atr_14_pct'))}, opening gap {_pct(candidate.get('gap_1d'))}.",
+        f"- Volume: 5D ratio {_num(candidate.get('volume_ratio_5d'))}x, 20D ratio {_num(candidate.get('volume_ratio_20d'))}x, 5D/20D trend {_num(candidate.get('volume_trend_5d_20d'))}x, dollar volume {_market_cap(candidate.get('dollar_volume'))}.",
+        f"- Range/volatility: 5D high distance {_pct(candidate.get('distance_from_5d_high'))}, 5D low distance {_pct(candidate.get('distance_from_5d_low'))}, 20D high distance {_pct(candidate.get('distance_from_20d_high'))}, 20D low distance {_pct(candidate.get('distance_from_20d_low'))}, ATR14 {_pct(candidate.get('atr_14_pct'))}, opening gap {_pct(candidate.get('gap_1d'))}.",
+        f"- Trend quality: SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}, close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}, up-day ratio 5D {_pct(candidate.get('up_day_ratio_5d'))}, up-day ratio 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
         f"- RSI14: {_num(candidate.get('rsi_14'))}; upcoming earnings days: {_num(candidate.get('upcoming_earnings_days'))}.",
         f"- Scores: rank score {_num(candidate.get('score'))}, opportunity {_num(candidate.get('opportunity_score'))}, risk {_num(candidate.get('risk_score'))}, confidence {_num(candidate.get('confidence_score'))}.",
         f"- Prediction: {candidate.get('expected_direction') or 'n/a'} over {candidate.get('expected_window') or 'n/a'}; setup: {candidate.get('setup_type') or 'n/a'}.",
@@ -65,13 +66,19 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
     observations: list[str] = []
     return_1d = candidate.get("return_1d")
     return_5d = candidate.get("return_5d")
+    return_10d = candidate.get("return_10d")
     volume_ratio = candidate.get("volume_ratio_5d")
     volume_ratio_20d = candidate.get("volume_ratio_20d")
+    volume_trend = candidate.get("volume_trend_5d_20d")
     distance_high = candidate.get("distance_from_5d_high")
+    distance_high_20d = candidate.get("distance_from_20d_high")
     rsi = candidate.get("rsi_14")
     rel_spy = candidate.get("rel_strength_spy_5d")
     rel_qqq = candidate.get("rel_strength_qqq_5d")
     atr = candidate.get("atr_14_pct")
+    sma_ratio = candidate.get("sma_5_20_ratio")
+    close_vs_sma = candidate.get("close_vs_sma_20")
+    up_day_5d = candidate.get("up_day_ratio_5d")
     if return_1d is not None:
         if return_1d > 0:
             observations.append(f"Latest session was positive at {_pct(return_1d)}.")
@@ -82,6 +89,8 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
             observations.append(f"Five-day return is positive at {_pct(return_5d)}.")
         else:
             observations.append(f"Five-day return is negative at {_pct(return_5d)}.")
+    if return_10d is not None:
+        observations.append(f"Ten-day return is {_pct(return_10d)}.")
     if volume_ratio is not None:
         observations.append(
             f"Latest volume is {_num(volume_ratio)}x the prior 5-day average."
@@ -90,10 +99,20 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(
             f"Latest volume is {_num(volume_ratio_20d)}x the prior 20-day average."
         )
+    if volume_trend is not None:
+        observations.append(f"Recent 5-day volume trend is {_num(volume_trend)}x the 20-day average.")
     if distance_high is not None:
         observations.append(f"Price is {_pct(distance_high)} from the 5-day high.")
+    if distance_high_20d is not None:
+        observations.append(f"Price is {_pct(distance_high_20d)} from the 20-day high.")
     if rsi is not None:
         observations.append(f"RSI 14 is {_num(rsi)}.")
+    if sma_ratio is not None:
+        observations.append(f"SMA 5/20 trend ratio is {_pct(sma_ratio)}.")
+    if close_vs_sma is not None:
+        observations.append(f"Price is {_pct(close_vs_sma)} versus SMA20.")
+    if up_day_5d is not None:
+        observations.append(f"Up-day ratio over 5 days is {_pct(up_day_5d)}.")
     if rel_spy is not None:
         observations.append(f"5-day relative strength vs SPY is {_pct(rel_spy)}.")
     if rel_qqq is not None:
@@ -107,15 +126,21 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
 def _proposal_highlights(candidate: dict[str, Any]) -> list[str]:
     highlights: list[str] = []
     return_5d = candidate.get("return_5d")
+    return_10d = candidate.get("return_10d")
     volume_ratio = candidate.get("volume_ratio_5d")
     volume_ratio_20d = candidate.get("volume_ratio_20d")
+    volume_trend = candidate.get("volume_trend_5d_20d")
     rel_spy = candidate.get("rel_strength_spy_5d")
     rel_qqq = candidate.get("rel_strength_qqq_5d")
     rsi = candidate.get("rsi_14")
     distance_high = candidate.get("distance_from_5d_high")
+    sma_ratio = candidate.get("sma_5_20_ratio")
+    up_day_5d = candidate.get("up_day_ratio_5d")
 
     if return_5d is not None:
         highlights.append(f"Five-day return is {_pct(return_5d)}.")
+    if return_10d is not None:
+        highlights.append(f"Ten-day return is {_pct(return_10d)}.")
     if rel_spy is not None:
         highlights.append(f"5-day relative strength vs SPY is {_pct(rel_spy)}.")
     if rel_qqq is not None:
@@ -124,10 +149,16 @@ def _proposal_highlights(candidate: dict[str, Any]) -> list[str]:
         highlights.append(f"Latest volume is {_num(volume_ratio)}x the prior 5-day average.")
     if volume_ratio_20d is not None:
         highlights.append(f"Latest volume is {_num(volume_ratio_20d)}x the prior 20-day average.")
+    if volume_trend is not None:
+        highlights.append(f"5-day volume trend is {_num(volume_trend)}x the 20-day average.")
     if distance_high is not None:
         highlights.append(f"Price is {_pct(distance_high)} from the 5-day high.")
     if rsi is not None:
         highlights.append(f"RSI 14 is {_num(rsi)}.")
+    if sma_ratio is not None:
+        highlights.append(f"SMA 5/20 trend ratio is {_pct(sma_ratio)}.")
+    if up_day_5d is not None:
+        highlights.append(f"Up-day ratio over 5 days is {_pct(up_day_5d)}.")
 
     return highlights[:5] or ["Short-term composite score ranked highly."]
 
@@ -187,24 +218,6 @@ def _deterministic_proposal(candidate: dict[str, Any]) -> str:
     )
 
 
-def _proposal_is_safe(text: str) -> bool:
-    banned_terms = [
-        " buy",
-        "buy:",
-        "portfolio",
-        "moving average",
-        "support",
-        "resistance",
-        "earnings",
-        "analyst",
-        "macro",
-        "news",
-        "guaranteed",
-    ]
-    lowered = f" {text.lower()}"
-    return not any(term in lowered for term in banned_terms)
-
-
 def _format_ollama_json(candidate: dict[str, Any], payload: dict[str, Any]) -> str:
     sections = [
         f"### {candidate.get('symbol')} - {candidate.get('name')}",
@@ -254,11 +267,16 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
     required_refs = {
         "return_1d",
         "return_5d",
+        "return_10d",
         "return_20d",
         "volume_ratio_5d",
         "volume_ratio_20d",
+        "volume_trend_5d_20d",
         "rel_strength_spy_5d",
         "rel_strength_qqq_5d",
+        "sma_5_20_ratio",
+        "close_vs_sma_20",
+        "up_day_ratio_5d",
         "rsi_14",
         "atr_14_pct",
         "risk_score",
@@ -267,11 +285,8 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
     if not required_refs.issubset(metric_refs):
         return False
 
-    combined = json.dumps(payload).lower()
-    if not _proposal_is_safe(combined):
-        return False
-
     # Require the model to acknowledge the deterministic prediction fields.
+    combined = json.dumps(payload).lower()
     return str(candidate.get("expected_direction") or "").lower() in combined
 
 
@@ -302,11 +317,20 @@ Candidate facts:
 - Market cap: {_market_cap(candidate.get("market_cap"))}
 - 1-day return: {_pct(candidate.get("return_1d"))}
 - 5-day return: {_pct(candidate.get("return_5d"))}
+- 10-day return: {_pct(candidate.get("return_10d"))}
+- 20-day return: {_pct(candidate.get("return_20d"))}
 - Latest volume vs prior 5-day average: {_num(candidate.get("volume_ratio_5d"))}x
+- Latest volume vs prior 20-day average: {_num(candidate.get("volume_ratio_20d"))}x
+- 5-day volume trend vs 20-day average: {_num(candidate.get("volume_trend_5d_20d"))}x
+- Dollar volume: {_market_cap(candidate.get("dollar_volume"))}
 - Distance from 5-day high: {_pct(candidate.get("distance_from_5d_high"))}
 - Distance from 5-day low: {_pct(candidate.get("distance_from_5d_low"))}
-- 20-day return: {_pct(candidate.get("return_20d"))}
-- Latest volume vs prior 20-day average: {_num(candidate.get("volume_ratio_20d"))}x
+- Distance from 20-day high: {_pct(candidate.get("distance_from_20d_high"))}
+- Distance from 20-day low: {_pct(candidate.get("distance_from_20d_low"))}
+- SMA 5/20 trend ratio: {_pct(candidate.get("sma_5_20_ratio"))}
+- Close vs SMA20: {_pct(candidate.get("close_vs_sma_20"))}
+- Up-day ratio 5D: {_pct(candidate.get("up_day_ratio_5d"))}
+- Up-day ratio 10D: {_pct(candidate.get("up_day_ratio_10d"))}
 - Gap from previous close to latest open: {_pct(candidate.get("gap_1d"))}
 - ATR 14 as pct of price: {_pct(candidate.get("atr_14_pct"))}
 - RSI 14: {_num(candidate.get("rsi_14"))}
@@ -337,7 +361,7 @@ Required JSON schema:
   "plan": ["2-4 bullets focused on what to watch"],
   "risks": ["2-4 bullets using only allowed risk notes"],
   "verdict": "one cautious sentence",
-  "metric_refs": ["return_1d", "return_5d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "rel_strength_spy_5d", "rel_strength_qqq_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
+  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "rel_strength_spy_5d", "rel_strength_qqq_5d", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
 }}
 """.strip()
 
@@ -447,6 +471,7 @@ SUMMARY_COLUMNS = [
     "current_price",
     "return_1d",
     "return_5d",
+    "return_10d",
     "return_20d",
     "rel_strength_spy_1d",
     "rel_strength_spy_5d",
@@ -454,9 +479,17 @@ SUMMARY_COLUMNS = [
     "rel_strength_qqq_5d",
     "volume_ratio_5d",
     "volume_ratio_20d",
+    "volume_trend_5d_20d",
     "distance_from_5d_high",
     "distance_from_5d_low",
+    "distance_from_20d_high",
+    "distance_from_20d_low",
     "gap_1d",
+    "sma_5_20_ratio",
+    "close_vs_sma_20",
+    "up_day_ratio_5d",
+    "up_day_ratio_10d",
+    "dollar_volume",
     "atr_14_pct",
     "rsi_14",
     "upcoming_earnings_days",

@@ -17,9 +17,15 @@ Python tooling for screening S&P 500 stocks and generating short-term research n
 
 - 1-day return
 - 5-day return
+- 10-day return
 - 20-day return
 - 5-day and 20-day relative volume
-- distance from 5-day high and low
+- 5-day volume trend versus 20-day volume
+- dollar volume for liquidity context
+- distance from 5-day and 20-day highs/lows
+- 5-day average versus 20-day average
+- close versus 20-day average
+- 5-day and 10-day up-day ratios
 - RSI 14
 - ATR 14 as percent of price
 - gap from previous close to latest open
@@ -35,6 +41,7 @@ Python tooling for screening S&P 500 stocks and generating short-term research n
 ├── requirements.txt
 ├── scripts/
 │   ├── generate_proposals.py
+│   ├── evaluate_runs.py
 │   ├── run_short_term_agent.py
 │   └── verify_ssl.py
 ├── src/
@@ -126,7 +133,7 @@ By default, proposals are deterministic and fact-only. Optional Ollama wording c
 python scripts\generate_proposals.py --top 10 --use-ollama
 ```
 
-Unsafe or overly broad Ollama output falls back to fact-only notes.
+Ollama output must still be valid structured JSON with required metric references. If it fails those structure checks, proposal generation falls back to fact-only notes. The code no longer rejects Ollama output just because it uses specific prohibited words.
 
 ## Evaluate Old Runs
 
@@ -185,5 +192,3 @@ git status --short
 ```
 
 Do not commit generated proposal/result files if they contain time-sensitive research output.
-
-python scripts\run_short_term_agent.py --use-ollama to run agent
