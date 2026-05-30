@@ -17,6 +17,12 @@ class StockMetrics:
     debt_to_equity: float | None
     free_cashflow: float | None
     current_price: float | None
+    return_1d: float | None = None
+    return_5d: float | None = None
+    volume_ratio_5d: float | None = None
+    distance_from_5d_high: float | None = None
+    distance_from_5d_low: float | None = None
+    rsi_14: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -35,6 +41,12 @@ class ScoredCandidate:
     current_price: float | None
     graham_match: bool
     reasons: list[str]
+    return_1d: float | None = None
+    return_5d: float | None = None
+    volume_ratio_5d: float | None = None
+    distance_from_5d_high: float | None = None
+    distance_from_5d_low: float | None = None
+    rsi_14: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

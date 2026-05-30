@@ -17,3 +17,11 @@ scoring:
   peg_ratio: 0.20
   # Bonus added to score when classic Graham thresholds are met
   graham_bonus: 0.15
+
+short_term_scoring:
+  # 1-day to 1-week view: momentum + volume + trading near recent highs.
+  return_1d: 0.20
+  return_5d: 0.35
+  volume_ratio_5d: 0.25
+  near_5d_high: 0.10
+  rsi_14: 0.10
