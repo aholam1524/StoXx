@@ -1,0 +1,32 @@
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Local secrets and machine-specific config
+.env
+.env.*
+*.local
+secrets.*
+credentials.*
+
+# Generated screener / proposal outputs
+outputs/*
+!outputs/.gitkeep
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

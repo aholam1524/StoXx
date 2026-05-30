@@ -80,6 +80,10 @@ def passes_filters(row: StockMetrics, filters: dict[str, Any]) -> bool:
     if min_cap and (row.market_cap is None or row.market_cap < min_cap):
         return False
 
+    max_cap = filters.get("max_market_cap")
+    if max_cap and row.market_cap is not None and row.market_cap > max_cap:
+        return False
+
     if filters.get("require_positive_trailing_pe") and (
         row.trailing_pe is None or row.trailing_pe <= 0
     ):
@@ -178,11 +182,15 @@ def score_short_term_candidates(
     filtered = [r for r in rows if passes_filters(r, filters)]
 
     w_1d = float(scoring.get("return_1d", 0.20))
-    w_5d = float(scoring.get("return_5d", 0.35))
-    w_volume = float(scoring.get("volume_ratio_5d", 0.25))
-    w_high = float(scoring.get("near_5d_high", 0.10))
+    w_5d = float(scoring.get("return_5d", 0.25))
+    w_volume = float(scoring.get("volume_ratio_5d", 0.18))
+    w_volume_20 = float(scoring.get("volume_ratio_20d", 0.10))
+    w_high = float(scoring.get("near_5d_high", 0.08))
     w_rsi = float(scoring.get("rsi_14", 0.10))
-    weight_sum = w_1d + w_5d + w_volume + w_high + w_rsi
+    w_spy = float(scoring.get("relative_spy_5d", 0.14))
+    w_qqq = float(scoring.get("relative_qqq_5d", 0.10))
+    w_trend = float(scoring.get("return_20d", 0.05))
+    weight_sum = w_1d + w_5d + w_volume + w_volume_20 + w_high + w_rsi + w_spy + w_qqq + w_trend
     if weight_sum <= 0:
         weight_sum = 1.0
 
@@ -196,16 +204,27 @@ def score_short_term_candidates(
         one_day = _scale(row.return_1d, -0.03, 0.04)
         five_day = _scale(row.return_5d, -0.05, 0.10)
         volume = _scale(row.volume_ratio_5d, 0.75, 2.50)
+        volume_20 = _scale(row.volume_ratio_20d, 0.80, 2.75)
         near_high = _scale(row.distance_from_5d_high, -0.08, 0.0)
         rsi = _ideal_rsi_score(row.rsi_14)
+        relative_spy = _scale(row.rel_strength_spy_5d, -0.03, 0.08)
+        relative_qqq = _scale(row.rel_strength_qqq_5d, -0.03, 0.08)
+        trend_20d = _scale(row.return_20d, -0.08, 0.18)
 
-        score = (
+        opportunity_score = (
             w_1d * one_day
             + w_5d * five_day
             + w_volume * volume
+            + w_volume_20 * volume_20
             + w_high * near_high
             + w_rsi * rsi
+            + w_spy * relative_spy
+            + w_qqq * relative_qqq
+            + w_trend * trend_20d
         ) / weight_sum
+        risk_score, risk_flags = _short_term_risk(row)
+        score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
+        setup_type = _setup_type(row, risk_score)
 
         reasons: list[str] = []
         if row.return_5d is not None and row.return_5d > 0.02:
@@ -214,10 +233,16 @@ def score_short_term_candidates(
             reasons.append("positive latest session")
         if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
             reasons.append("volume above recent average")
+        if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
+            reasons.append("volume above 20-day average")
         if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
             reasons.append("trading near 5-day high")
         if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
             reasons.append("RSI in constructive range")
+        if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
+            reasons.append("outperforming SPY over 5 days")
+        if row.rel_strength_qqq_5d is not None and row.rel_strength_qqq_5d > 0:
+            reasons.append("outperforming QQQ over 5 days")
         if not reasons:
             reasons.append("short-term composite score")
 
@@ -234,14 +259,89 @@ def score_short_term_candidates(
                 current_price=row.current_price,
                 graham_match=_graham_match(row.trailing_pe, row.price_to_book),
                 reasons=reasons,
+                opportunity_score=round(opportunity_score, 4),
+                risk_score=round(risk_score, 4),
+                setup_type=setup_type,
+                risk_flags=risk_flags,
+                upcoming_earnings_days=row.upcoming_earnings_days,
                 return_1d=row.return_1d,
                 return_5d=row.return_5d,
+                return_20d=row.return_20d,
+                gap_1d=row.gap_1d,
                 volume_ratio_5d=row.volume_ratio_5d,
+                volume_ratio_20d=row.volume_ratio_20d,
                 distance_from_5d_high=row.distance_from_5d_high,
                 distance_from_5d_low=row.distance_from_5d_low,
+                atr_14_pct=row.atr_14_pct,
                 rsi_14=row.rsi_14,
+                rel_strength_spy_1d=row.rel_strength_spy_1d,
+                rel_strength_spy_5d=row.rel_strength_spy_5d,
+                rel_strength_qqq_1d=row.rel_strength_qqq_1d,
+                rel_strength_qqq_5d=row.rel_strength_qqq_5d,
             )
         )
 
     results.sort(key=lambda c: c.score, reverse=True)
     return results
+
+
+def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
+    flags: list[str] = []
+    risk = 0.0
+
+    if row.return_1d is not None and row.return_1d > 0.08:
+        flags.append("large 1-day move")
+        risk += 0.18
+    if row.return_5d is not None and row.return_5d > 0.15:
+        flags.append("large 5-day move")
+        risk += 0.22
+    if row.rsi_14 is not None and row.rsi_14 > 70:
+        flags.append("RSI above 70")
+        risk += 0.18
+    if row.volume_ratio_5d is not None and row.volume_ratio_5d > 3.0:
+        flags.append("very high 5-day relative volume")
+        risk += 0.12
+    if row.atr_14_pct is not None and row.atr_14_pct > 0.06:
+        flags.append("high ATR volatility")
+        risk += 0.12
+    if row.gap_1d is not None and abs(row.gap_1d) > 0.05:
+        flags.append("large opening gap")
+        risk += 0.10
+    if (
+        row.upcoming_earnings_days is not None
+        and 0 <= row.upcoming_earnings_days <= 7
+    ):
+        flags.append("earnings within 7 days")
+        risk += 0.25
+
+    if not flags:
+        flags.append("no major short-term risk flags")
+
+    return _clamp(risk, 0.0, 1.0), flags
+
+
+def _setup_type(row: StockMetrics, risk_score: float) -> str:
+    if (
+        row.upcoming_earnings_days is not None
+        and 0 <= row.upcoming_earnings_days <= 7
+    ):
+        return "earnings risk"
+    if risk_score >= 0.45:
+        return "overextended"
+    if (
+        row.return_5d is not None
+        and row.return_5d > 0.02
+        and row.rel_strength_spy_5d is not None
+        and row.rel_strength_spy_5d > 0
+    ):
+        if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
+            return "momentum continuation"
+        return "relative strength"
+    if (
+        row.volume_ratio_20d is not None
+        and row.volume_ratio_20d > 1.5
+        and row.distance_from_5d_high is not None
+        and row.distance_from_5d_high > -0.02
+    ):
+        return "breakout watch"
+    return "pullback risk"

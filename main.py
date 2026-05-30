@@ -80,8 +80,8 @@ def print_short_term_results(candidates: list, top_n: int) -> None:
         "(1-day to 1-week window):\n"
     )
     header = (
-        f"{'Rank':<5} {'Symbol':<8} {'Score':<7} {'1D':<9} {'5D':<9} "
-        f"{'Vol x':<8} {'5D High':<9} {'RSI':<7} {'Mkt Cap':<10}"
+        f"{'Rank':<5} {'Symbol':<8} {'Score':<7} {'Risk':<7} {'Setup':<23} "
+        f"{'1D':<9} {'5D':<9} {'SPY 5D':<9} {'Vol x':<8} {'RSI':<7} {'Mkt Cap':<10}"
     )
     print(header)
     print("-" * len(header))
@@ -89,13 +89,17 @@ def print_short_term_results(candidates: list, top_n: int) -> None:
     for rank, c in enumerate(candidates[:top_n], start=1):
         print(
             f"{rank:<5} {c.symbol:<8} {c.score:<7.3f} "
+            f"{_format_number(c.risk_score):<7} "
+            f"{(c.setup_type or 'n/a'):<23} "
             f"{_format_percent(c.return_1d):<9} {_format_percent(c.return_5d):<9} "
+            f"{_format_percent(c.rel_strength_spy_5d):<9} "
             f"{_format_number(c.volume_ratio_5d):<8} "
-            f"{_format_percent(c.distance_from_5d_high):<9} "
             f"{_format_number(c.rsi_14):<7} {format_market_cap(c.market_cap):<10}"
         )
         print(f"       {c.name}")
         print(f"       Signals: {', '.join(c.reasons)}")
+        if c.risk_flags:
+            print(f"       Risk flags: {', '.join(c.risk_flags)}")
         print()
 
 
@@ -169,7 +173,11 @@ def main() -> int:
     top_n = args.top if args.top is not None else int(config.get("top_n", 10))
     scoring = config.get("scoring", {})
     short_term_scoring = config.get("short_term_scoring", {})
-    filters = {**config.get("filters", {}), "min_market_cap": config.get("min_market_cap")}
+    filters = {
+        **config.get("filters", {}),
+        "min_market_cap": config.get("min_market_cap"),
+        "max_market_cap": config.get("max_market_cap"),
+    }
 
     if args.demo:
         demo_path = ROOT / "data" / "demo_metrics.json"

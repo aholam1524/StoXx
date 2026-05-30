@@ -6,9 +6,14 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
 def run(command: list[str]) -> None:
@@ -24,7 +29,7 @@ def main() -> int:
     parser.add_argument(
         "--proposal-top",
         type=int,
-        default=5,
+        default=10,
         help="Top candidates to generate proposals for.",
     )
     parser.add_argument(
@@ -44,8 +49,19 @@ def main() -> int:
         help="Try local Ollama wording; unsafe outputs fall back to fact-only notes.",
     )
     args = parser.parse_args()
+    run_dir = ROOT / "outputs" / "runs" / run_id()
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    screen_cmd = [sys.executable, "main.py", "--mode", "short-term", "--top", str(args.top)]
+    screen_cmd = [
+        sys.executable,
+        "main.py",
+        "--mode",
+        "short-term",
+        "--top",
+        str(args.top),
+        "--output",
+        str(run_dir / "screen_results.json"),
+    ]
     if args.limit is not None:
         screen_cmd.extend(["--limit", str(args.limit)])
     run(screen_cmd)
@@ -57,11 +73,16 @@ def main() -> int:
         str(args.proposal_top),
         "--model",
         args.model,
+        "--input",
+        str(run_dir / "screen_results.json"),
+        "--run-dir",
+        str(run_dir),
     ]
     if args.use_ollama:
         proposal_cmd.append("--use-ollama")
     run(proposal_cmd)
-    print("\nDone. Open outputs/proposals.md for the AI research notes.")
+    print(f"\nDone. Run folder: {run_dir}")
+    print("Latest copies are in outputs/latest/.")
     return 0
 
 
