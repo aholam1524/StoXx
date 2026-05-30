@@ -1,0 +1,165 @@
+{
+  "generated_at": "2026-05-30T15:09:31.990097+00:00",
+  "model": "qwen2.5:0.5b",
+  "input": "C:\\Users\\mikae\\OneDrive\\Attachments\\myproject\\fproject\\outputs\\screen_results.json",
+  "disclaimer": "Not financial advice. Short-term trading is high risk. Use this only as research and define your own position sizing and risk limits.",
+  "proposals": [
+    {
+      "rank": 1,
+      "symbol": "VEEV",
+      "name": "Veeva Systems Inc.",
+      "used_ollama": false,
+      "proposal": "### VEEV - Veeva Systems Inc.\n**Setup:** VEEV is a short-term candidate based on the current 1-day to 1-week screen. The setup is driven by recent price action, relative volume, and proximity to the 5-day high.\n\n**Why it screens well:**\n- Latest session was positive at 6.06%.\n- Five-day return is positive at 10.15%.\n- Latest volume is 2.42x the prior 5-day average.\n\n**1-day to 1-week plan:**\n- Watch whether positive momentum continues instead of fading after the recent move.\n- Watch whether relative volume stays supportive; fading volume weakens the setup.\n- Treat a loss of momentum combined with fading relative volume as invalidation.\n\n**Main risks:**\n- Main invalidation is loss of positive momentum or fading relative volume.\n\n**Verdict:** This is a watchlist candidate for short-term research only; the setup depends on momentum and volume staying intact. Not financial advice.",
+      "source_metrics": {
+        "symbol": "VEEV",
+        "name": "Veeva Systems Inc.",
+        "sector": "Unknown",
+        "score": 0.967,
+        "trailing_pe": 32.047794,
+        "price_to_book": 3.9575956,
+        "peg_ratio": null,
+        "market_cap": 28452061184.0,
+        "current_price": 174.33999633789062,
+        "graham_match": false,
+        "reasons": [
+          "positive 5-day momentum",
+          "positive latest session",
+          "volume above recent average",
+          "trading near 5-day high",
+          "RSI in constructive range"
+        ],
+        "return_1d": 0.06059125902921503,
+        "return_5d": 0.10153529810844808,
+        "volume_ratio_5d": 2.416981507257904,
+        "distance_from_5d_high": -0.016916657617856434,
+        "distance_from_5d_low": 0.12470164838437059,
+        "rsi_14": 58.470986650983484
+      }
+    },
+    {
+      "rank": 2,
+      "symbol": "APTV",
+      "name": "Aptiv PLC",
+      "used_ollama": false,
+      "proposal": "### APTV - Aptiv PLC\n**Setup:** APTV is a short-term candidate based on the current 1-day to 1-week screen. The setup is driven by recent price action, relative volume, and proximity to the 5-day high.\n\n**Why it screens well:**\n- Latest session was positive at 6.71%.\n- Five-day return is positive at 21.65%.\n- Latest volume is 2.76x the prior 5-day average.\n\n**1-day to 1-week plan:**\n- Watch whether positive momentum continues instead of fading after the recent move.\n- Watch whether relative volume stays supportive; fading volume weakens the setup.\n- Treat a loss of momentum combined with fading relative volume as invalidation.\n\n**Main risks:**\n- Large 5-day move increases pullback risk.\n- Very high relative volume can reverse quickly after the burst fades.\n\n**Verdict:** This is a watchlist candidate for short-term research only; the setup depends on momentum and volume staying intact. Not financial advice.",
+      "source_metrics": {
+        "symbol": "APTV",
+        "name": "Aptiv PLC",
+        "sector": "Unknown",
+        "score": 0.9556,
+        "trailing_pe": 40.44048,
+        "price_to_book": 1.5625576,
+        "peg_ratio": null,
+        "market_cap": 14377499648.0,
+        "current_price": 67.94000244140625,
+        "graham_match": false,
+        "reasons": [
+          "positive 5-day momentum",
+          "positive latest session",
+          "volume above recent average",
+          "trading near 5-day high"
+        ],
+        "return_1d": 0.06706462062603946,
+        "return_5d": 0.2164727716669006,
+        "volume_ratio_5d": 2.7637382478494694,
+        "distance_from_5d_high": -0.003520062521198186,
+        "distance_from_5d_low": 0.21603729622828372,
+        "rsi_14": 68.22157714062647
+      }
+    },
+    {
+      "rank": 3,
+      "symbol": "CDW",
+      "name": "CDW Corporation",
+      "used_ollama": false,
+      "proposal": "### CDW - CDW Corporation\n**Setup:** CDW is a short-term candidate based on the current 1-day to 1-week screen. The setup is driven by recent price action, relative volume, and proximity to the 5-day high.\n\n**Why it screens well:**\n- Latest session was positive at 8.00%.\n- Five-day return is positive at 18.07%.\n- Latest volume is 3.03x the prior 5-day average.\n\n**1-day to 1-week plan:**\n- Watch whether positive momentum continues instead of fading after the recent move.\n- Watch whether relative volume stays supportive; fading volume weakens the setup.\n- Treat a loss of momentum combined with fading relative volume as invalidation.\n\n**Main risks:**\n- Large 5-day move increases pullback risk.\n- Very high relative volume can reverse quickly after the burst fades.\n- RSI is elevated above 70, so the setup may be stretched.\n\n**Verdict:** This is a watchlist candidate for short-term research only; the setup depends on momentum and volume staying intact. Not financial advice.",
+      "source_metrics": {
+        "symbol": "CDW",
+        "name": "CDW Corporation",
+        "sector": "Unknown",
+        "score": 0.9153,
+        "trailing_pe": 15.29878,
+        "price_to_book": 6.2838106,
+        "peg_ratio": null,
+        "market_cap": 16026670080.0,
+        "current_price": 125.44999694824219,
+        "graham_match": false,
+        "reasons": [
+          "positive 5-day momentum",
+          "positive latest session",
+          "volume above recent average",
+          "trading near 5-day high"
+        ],
+        "return_1d": 0.079975834997009,
+        "return_5d": 0.1807059384123635,
+        "volume_ratio_5d": 3.0268690261240674,
+        "distance_from_5d_high": -0.003732538338132252,
+        "distance_from_5d_low": 0.1807058536305146,
+        "rsi_14": 78.88485654451563
+      }
+    },
+    {
+      "rank": 4,
+      "symbol": "CRM",
+      "name": "Salesforce, Inc.",
+      "used_ollama": false,
+      "proposal": "### CRM - Salesforce, Inc.\n**Setup:** CRM is a short-term candidate based on the current 1-day to 1-week screen. The setup is driven by recent price action, relative volume, and proximity to the 5-day high.\n\n**Why it screens well:**\n- Latest session was positive at 8.47%.\n- Five-day return is positive at 8.39%.\n- Latest volume is 2.24x the prior 5-day average.\n\n**1-day to 1-week plan:**\n- Watch whether positive momentum continues instead of fading after the recent move.\n- Watch whether relative volume stays supportive; fading volume weakens the setup.\n- Treat a loss of momentum combined with fading relative volume as invalidation.\n\n**Main risks:**\n- Large latest-session move can invite short-term profit taking.\n\n**Verdict:** This is a watchlist candidate for short-term research only; the setup depends on momentum and volume staying intact. Not financial advice.",
+      "source_metrics": {
+        "symbol": "CRM",
+        "name": "Salesforce, Inc.",
+        "sector": "Unknown",
+        "score": 0.9056,
+        "trailing_pe": 22.118055,
+        "price_to_book": 4.5716615,
+        "peg_ratio": null,
+        "market_cap": 156510912512.0,
+        "current_price": 191.10000610351562,
+        "graham_match": false,
+        "reasons": [
+          "positive 5-day momentum",
+          "positive latest session",
+          "volume above recent average",
+          "trading near 5-day high",
+          "RSI in constructive range"
+        ],
+        "return_1d": 0.08474773281346448,
+        "return_5d": 0.08388638619319733,
+        "volume_ratio_5d": 2.2391210025940524,
+        "distance_from_5d_high": -0.01565876839234659,
+        "distance_from_5d_low": 0.11331204718108423,
+        "rsi_14": 58.17764398485848
+      }
+    },
+    {
+      "rank": 5,
+      "symbol": "DELL",
+      "name": "Dell Technologies Inc.",
+      "used_ollama": false,
+      "proposal": "### DELL - Dell Technologies Inc.\n**Setup:** DELL is a short-term candidate based on the current 1-day to 1-week screen. The setup is driven by recent price action, relative volume, and proximity to the 5-day high.\n\n**Why it screens well:**\n- Latest session was positive at 32.76%.\n- Five-day return is positive at 66.50%.\n- Latest volume is 3.18x the prior 5-day average.\n\n**1-day to 1-week plan:**\n- Watch whether positive momentum continues instead of fading after the recent move.\n- Watch whether relative volume stays supportive; fading volume weakens the setup.\n- Treat a loss of momentum combined with fading relative volume as invalidation.\n\n**Main risks:**\n- Large latest-session move can invite short-term profit taking.\n- Large 5-day move increases pullback risk.\n- Very high relative volume can reverse quickly after the burst fades.\n\n**Verdict:** This is a watchlist candidate for short-term research only; the setup depends on momentum and volume staying intact. Not financial advice.",
+      "source_metrics": {
+        "symbol": "DELL",
+        "name": "Dell Technologies Inc.",
+        "sector": "Unknown",
+        "score": 0.896,
+        "trailing_pe": 48.547867,
+        "price_to_book": -111.116684,
+        "peg_ratio": null,
+        "market_cap": 273409769472.0,
+        "current_price": 420.9100036621094,
+        "graham_match": false,
+        "reasons": [
+          "positive 5-day momentum",
+          "positive latest session",
+          "volume above recent average",
+          "trading near 5-day high"
+        ],
+        "return_1d": 0.32758246291736315,
+        "return_5d": 0.664992082994291,
+        "volume_ratio_5d": 3.1835553406086423,
+        "distance_from_5d_high": -0.019200723177366652,
+        "distance_from_5d_low": 0.5870820000135781,
+        "rsi_14": 85.07104091956967
+      }
+    }
+  ]
+}
