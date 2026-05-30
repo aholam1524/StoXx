@@ -16,9 +16,32 @@ def _median(values: list[float]) -> float | None:
 
 def _relative_cheapness(value: float | None, sector_median: float | None) -> float:
     """Higher = cheaper vs sector (value below median is better for PE/PB/PEG)."""
-    if value is None or value <= 0 or sector_median is None or sector_median <= 0:
+    if value is None or value <= 0.05 or sector_median is None or sector_median <= 0:
         return 0.0
-    return sector_median / value
+    return min(sector_median / value, 5.0)
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _scale(value: float | None, low: float, high: float) -> float:
+    if value is None or high <= low:
+        return 0.0
+    return _clamp((value - low) / (high - low), 0.0, 1.0)
+
+
+def _ideal_rsi_score(value: float | None) -> float:
+    """Prefer constructive RSI, but avoid extremely overbought readings."""
+    if value is None:
+        return 0.0
+    if 45 <= value <= 65:
+        return 1.0
+    if 35 <= value < 45:
+        return 0.7
+    if 65 < value <= 75:
+        return 0.6
+    return 0.2
 
 
 def _graham_match(pe: float | None, pb: float | None) -> bool:
@@ -132,6 +155,91 @@ def score_candidates(
                 current_price=row.current_price,
                 graham_match=graham,
                 reasons=reasons,
+                return_1d=row.return_1d,
+                return_5d=row.return_5d,
+                volume_ratio_5d=row.volume_ratio_5d,
+                distance_from_5d_high=row.distance_from_5d_high,
+                distance_from_5d_low=row.distance_from_5d_low,
+                rsi_14=row.rsi_14,
+            )
+        )
+
+    results.sort(key=lambda c: c.score, reverse=True)
+    return results
+
+
+def score_short_term_candidates(
+    rows: list[StockMetrics],
+    *,
+    scoring: dict[str, Any],
+    filters: dict[str, Any],
+) -> list[ScoredCandidate]:
+    """Rank names for a 1-day to 1-week window using price/volume behavior."""
+    filtered = [r for r in rows if passes_filters(r, filters)]
+
+    w_1d = float(scoring.get("return_1d", 0.20))
+    w_5d = float(scoring.get("return_5d", 0.35))
+    w_volume = float(scoring.get("volume_ratio_5d", 0.25))
+    w_high = float(scoring.get("near_5d_high", 0.10))
+    w_rsi = float(scoring.get("rsi_14", 0.10))
+    weight_sum = w_1d + w_5d + w_volume + w_high + w_rsi
+    if weight_sum <= 0:
+        weight_sum = 1.0
+
+    results: list[ScoredCandidate] = []
+    for row in filtered:
+        if row.return_1d is None or row.return_5d is None:
+            continue
+
+        # These ranges favor positive short-term momentum without rewarding
+        # extreme one-day spikes too heavily.
+        one_day = _scale(row.return_1d, -0.03, 0.04)
+        five_day = _scale(row.return_5d, -0.05, 0.10)
+        volume = _scale(row.volume_ratio_5d, 0.75, 2.50)
+        near_high = _scale(row.distance_from_5d_high, -0.08, 0.0)
+        rsi = _ideal_rsi_score(row.rsi_14)
+
+        score = (
+            w_1d * one_day
+            + w_5d * five_day
+            + w_volume * volume
+            + w_high * near_high
+            + w_rsi * rsi
+        ) / weight_sum
+
+        reasons: list[str] = []
+        if row.return_5d is not None and row.return_5d > 0.02:
+            reasons.append("positive 5-day momentum")
+        if row.return_1d is not None and row.return_1d > 0:
+            reasons.append("positive latest session")
+        if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
+            reasons.append("volume above recent average")
+        if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
+            reasons.append("trading near 5-day high")
+        if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
+            reasons.append("RSI in constructive range")
+        if not reasons:
+            reasons.append("short-term composite score")
+
+        results.append(
+            ScoredCandidate(
+                symbol=row.symbol,
+                name=row.name,
+                sector=row.sector,
+                score=round(score, 4),
+                trailing_pe=row.trailing_pe,
+                price_to_book=row.price_to_book,
+                peg_ratio=row.peg_ratio,
+                market_cap=row.market_cap,
+                current_price=row.current_price,
+                graham_match=_graham_match(row.trailing_pe, row.price_to_book),
+                reasons=reasons,
+                return_1d=row.return_1d,
+                return_5d=row.return_5d,
+                volume_ratio_5d=row.volume_ratio_5d,
+                distance_from_5d_high=row.distance_from_5d_high,
+                distance_from_5d_low=row.distance_from_5d_low,
+                rsi_14=row.rsi_14,
             )
         )
 
