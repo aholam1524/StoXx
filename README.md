@@ -82,7 +82,10 @@ Each run creates a timestamped history folder:
 outputs/runs/YYYYMMDD_HHMMSS/
 ├── screen_results.json
 ├── proposals.md
-└── proposals.json
+├── proposals.json
+├── metrics_summary.csv
+├── backtest_result.json
+└── calibration_suggestions.json
 ```
 
 The newest run is also copied to:
@@ -91,7 +94,8 @@ The newest run is also copied to:
 outputs/latest/
 ├── screen_results.json
 ├── proposals.md
-└── proposals.json
+├── proposals.json
+└── metrics_summary.csv
 ```
 
 ## Run Only The Screener
@@ -123,6 +127,29 @@ python scripts\generate_proposals.py --top 10 --use-ollama
 ```
 
 Unsafe or overly broad Ollama output falls back to fact-only notes.
+
+## Evaluate Old Runs
+
+After at least one later trading day has passed, evaluate historical runs:
+
+```powershell
+python scripts\evaluate_runs.py
+```
+
+Evaluate one specific run:
+
+```powershell
+python scripts\evaluate_runs.py --run-dir outputs\runs\YYYYMMDD_HHMMSS
+```
+
+This writes:
+
+```text
+outputs/runs/YYYYMMDD_HHMMSS/backtest_result.json
+outputs/runs/YYYYMMDD_HHMMSS/calibration_suggestions.json
+```
+
+Use `calibration_suggestions.json` to decide which short-term scoring weights or risk penalties should be increased or reduced after enough completed runs exist.
 
 ## Configuration
 
@@ -158,3 +185,5 @@ git status --short
 ```
 
 Do not commit generated proposal/result files if they contain time-sensitive research output.
+
+python scripts\run_short_term_agent.py --use-ollama to run agent

@@ -223,6 +223,11 @@ def score_short_term_candidates(
             + w_trend * trend_20d
         ) / weight_sum
         risk_score, risk_flags = _short_term_risk(row)
+        confidence_score, expected_direction, reason_codes = _short_term_prediction(
+            row,
+            opportunity_score,
+            risk_score,
+        )
         score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
         setup_type = _setup_type(row, risk_score)
 
@@ -278,6 +283,10 @@ def score_short_term_candidates(
                 rel_strength_spy_5d=row.rel_strength_spy_5d,
                 rel_strength_qqq_1d=row.rel_strength_qqq_1d,
                 rel_strength_qqq_5d=row.rel_strength_qqq_5d,
+                expected_direction=expected_direction,
+                expected_window="1d-5d",
+                confidence_score=round(confidence_score, 4),
+                reason_codes=reason_codes,
             )
         )
 
@@ -345,3 +354,40 @@ def _setup_type(row: StockMetrics, risk_score: float) -> str:
     ):
         return "breakout watch"
     return "pullback risk"
+
+
+def _short_term_prediction(
+    row: StockMetrics,
+    opportunity_score: float,
+    risk_score: float,
+) -> tuple[float, str, list[str]]:
+    reason_codes: list[str] = []
+    if row.return_5d is not None and row.return_5d > 0.02:
+        reason_codes.append("MOMENTUM_5D_POSITIVE")
+    if row.return_1d is not None and row.return_1d > 0:
+        reason_codes.append("LATEST_SESSION_POSITIVE")
+    if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
+        reason_codes.append("OUTPERFORMS_SPY_5D")
+    if row.rel_strength_qqq_5d is not None and row.rel_strength_qqq_5d > 0:
+        reason_codes.append("OUTPERFORMS_QQQ_5D")
+    if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
+        reason_codes.append("VOLUME_5D_ABOVE_AVERAGE")
+    if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
+        reason_codes.append("VOLUME_20D_ABOVE_AVERAGE")
+    if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
+        reason_codes.append("NEAR_5D_HIGH")
+    if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
+        reason_codes.append("RSI_CONSTRUCTIVE")
+
+    confidence = _clamp(0.60 * opportunity_score + 0.40 * (1 - risk_score), 0.0, 1.0)
+    if confidence >= 0.70 and opportunity_score >= 0.65 and risk_score < 0.45:
+        expected_direction = "up"
+    elif risk_score >= 0.45:
+        expected_direction = "mixed/high-risk"
+    else:
+        expected_direction = "neutral/watch"
+
+    if not reason_codes:
+        reason_codes.append("COMPOSITE_SCORE")
+
+    return confidence, expected_direction, reason_codes
