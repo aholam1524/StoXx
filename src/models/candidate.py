@@ -32,6 +32,10 @@ class StockMetrics:
     rel_strength_spy_5d: float | None = None
     rel_strength_qqq_1d: float | None = None
     rel_strength_qqq_5d: float | None = None
+    expected_direction: str | None = None
+    expected_window: str | None = None
+    confidence_score: float | None = None
+    reason_codes: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -69,6 +73,10 @@ class ScoredCandidate:
     rel_strength_spy_5d: float | None = None
     rel_strength_qqq_1d: float | None = None
     rel_strength_qqq_5d: float | None = None
+    expected_direction: str | None = None
+    expected_window: str | None = None
+    confidence_score: float | None = None
+    reason_codes: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
