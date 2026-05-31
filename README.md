@@ -230,13 +230,14 @@ This project uses GitHub Actions for pull-request validation and main-branch art
 
 Branch flow:
 
-- Open pull requests into `test` for validation before wider testing.
+- Push to `dev` runs validation and opens a pull request into `test` if validation passes.
+- Review and merge the automated `dev` -> `test` pull request when you are ready.
 - Open pull requests into `main` for release-ready validation.
 - Pushes to `main` create a downloadable source zip artifact.
-- The `dev` branch is not directly gated unless you open a PR from `dev` into `test` or `main`.
 
 Workflows:
 
+- `.github/workflows/promote-dev-to-test.yml` runs on pushes to `dev`, validates the project, and creates a `dev` -> `test` pull request.
 - `.github/workflows/ci.yml` runs on pull requests into `test` and `main`.
 - `.github/workflows/release.yml` runs on pushes to `main`.
 

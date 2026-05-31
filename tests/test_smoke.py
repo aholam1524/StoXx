@@ -58,7 +58,7 @@ class SmokeTests(unittest.TestCase):
 
         self.assertIn("### TEST - Test Company", proposal)
         self.assertIn("Risk score is 0.10 (low)", proposal)
-        self.assertIn("Market: US / S&P 500", proposal)
+        self.assertIn("**Snapshot:** US / S&P 500", proposal)
 
 
 if __name__ == "__main__":
