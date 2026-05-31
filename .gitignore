@@ -30,3 +30,6 @@ outputs/*
 Thumbs.db
 .vscode/
 .idea/
+
+# Commandline runs
+fproject/run_commands/commands.txt

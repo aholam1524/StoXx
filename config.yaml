@@ -28,21 +28,44 @@ scoring:
   graham_bonus: 0.15
 
 short_term_scoring:
-  # 1-day to 1-week view: momentum + volume + relative strength + trend.
-  return_1d: 0.20
-  return_5d: 0.25
-  return_10d: 0.10
-  volume_ratio_5d: 0.18
-  volume_ratio_20d: 0.10
-  volume_trend_5d_20d: 0.06
-  near_5d_high: 0.08
-  near_20d_high: 0.05
-  rsi_14: 0.10
-  relative_spy_5d: 0.14
-  relative_qqq_5d: 0.10
-  return_20d: 0.05
-  sma_5_20_ratio: 0.08
-  close_vs_sma_20: 0.06
-  up_day_ratio_5d: 0.07
-  up_day_ratio_10d: 0.05
-  dollar_volume: 0.04
+  # 1-day to 1-week view: score grouped factors, not duplicate raw signals.
+  factor_weights:
+    trend: 0.25
+    momentum: 0.20
+    relative_strength: 0.25
+    participation: 0.20
+    extension: 0.10
+  factor_components:
+    trend:
+      sma_5_20_ratio: 0.30
+      close_vs_sma_20: 0.25
+      return_20d: 0.25
+      up_day_ratio_10d: 0.20
+    momentum:
+      return_1d: 0.15
+      return_5d: 0.30
+      return_10d: 0.30
+      return_20d: 0.25
+    relative_strength:
+      rel_strength_spy_1d: 0.03
+      rel_strength_qqq_1d: 0.02
+      rel_strength_spy_5d: 0.20
+      rel_strength_qqq_5d: 0.15
+      rel_strength_spy_10d: 0.25
+      rel_strength_qqq_10d: 0.15
+      rel_strength_spy_20d: 0.15
+      rel_strength_qqq_20d: 0.10
+    participation:
+      volume_ratio_5d: 0.20
+      volume_ratio_20d: 0.20
+      volume_trend_5d_20d: 0.15
+      volume_persistence_5d: 0.15
+      volume_persistence_10d: 0.15
+      volume_z_score_20d: 0.10
+      dollar_volume: 0.05
+    extension:
+      rsi_control: 0.30
+      atr_14_pct: 0.25
+      stretch_vs_atr: 0.20
+      distance_from_20d_low: 0.15
+      abs_gap_1d: 0.10

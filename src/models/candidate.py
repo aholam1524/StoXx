@@ -41,12 +41,23 @@ class StockMetrics:
     rsi_14: float | None = None
     rel_strength_spy_1d: float | None = None
     rel_strength_spy_5d: float | None = None
+    rel_strength_spy_10d: float | None = None
+    rel_strength_spy_20d: float | None = None
     rel_strength_qqq_1d: float | None = None
     rel_strength_qqq_5d: float | None = None
+    rel_strength_qqq_10d: float | None = None
+    rel_strength_qqq_20d: float | None = None
+    volume_persistence_5d: float | None = None
+    volume_persistence_10d: float | None = None
+    volume_z_score_20d: float | None = None
+    liquidity_tier: str | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
     reason_codes: list[str] | None = None
+    factor_scores: dict[str, float] | None = None
+    factor_summaries: list[str] | None = None
+    factor_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -94,12 +105,23 @@ class ScoredCandidate:
     rsi_14: float | None = None
     rel_strength_spy_1d: float | None = None
     rel_strength_spy_5d: float | None = None
+    rel_strength_spy_10d: float | None = None
+    rel_strength_spy_20d: float | None = None
     rel_strength_qqq_1d: float | None = None
     rel_strength_qqq_5d: float | None = None
+    rel_strength_qqq_10d: float | None = None
+    rel_strength_qqq_20d: float | None = None
+    volume_persistence_5d: float | None = None
+    volume_persistence_10d: float | None = None
+    volume_z_score_20d: float | None = None
+    liquidity_tier: str | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
     reason_codes: list[str] | None = None
+    factor_scores: dict[str, float] | None = None
+    factor_summaries: list[str] | None = None
+    factor_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

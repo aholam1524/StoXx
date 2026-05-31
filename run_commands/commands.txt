@@ -1,0 +1,67 @@
+# Run Commands
+
+Run these from the project root:
+C:\Users\mikae\OneDrive\Attachments\myproject\fproject
+
+Change to the project root:
+cd C:\Users\mikae\OneDrive\Attachments\myproject\fproject
+
+Install dependencies:
+python -m pip install -r requirements.txt
+
+Full short-term agent run:
+python scripts\run_short_term_agent.py
+
+US-only short-term agent run:
+python scripts\run_short_term_agent.py --universe sp500
+
+Finland-only short-term agent run:
+python scripts\run_short_term_agent.py --universe finland
+
+US and Finland short-term agent run:
+python scripts\run_short_term_agent.py --universe sp500 --universe finland
+
+Faster test run with a small symbol limit:
+python scripts\run_short_term_agent.py --limit 25 --top 5 --proposal-top 5
+
+Run the short-term agent with local Ollama wording enabled:
+python scripts\run_short_term_agent.py --use-ollama
+
+Run the short-term agent with a specific Ollama model:
+python scripts\run_short_term_agent.py --use-ollama --model qwen2.5:0.5b
+
+Screen short-term candidates only:
+python main.py --mode short-term --top 10 --output outputs\screen_results.json
+
+Screen US short-term candidates only:
+python main.py --mode short-term --universe sp500 --top 10 --output outputs\screen_results.json
+
+Screen Finland short-term candidates only:
+python main.py --mode short-term --universe finland --top 10 --output outputs\screen_results.json
+
+Offline demo screen:
+python main.py --demo --mode short-term --top 10 --output outputs\screen_results.json
+
+Generate proposals from the latest screen results:
+python scripts\generate_proposals.py --input outputs\screen_results.json --top 5
+
+Generate proposals from the latest screen results with Ollama:
+python scripts\generate_proposals.py --input outputs\screen_results.json --top 5 --use-ollama
+
+Generate proposals for a specific run folder:
+python scripts\generate_proposals.py --input outputs\runs\YYYYMMDD_HHMMSS\screen_results.json --run-dir outputs\runs\YYYYMMDD_HHMMSS --top 5
+
+Evaluate all historical runs:
+python scripts\evaluate_runs.py
+
+Evaluate one specific run:
+python scripts\evaluate_runs.py --run-dir outputs\runs\YYYYMMDD_HHMMSS
+
+Verify SSL and Yahoo Finance access:
+python scripts\verify_ssl.py
+
+Run local CI smoke tests:
+python -m unittest discover -s tests -p "test_*.py"
+
+Compile the same Python files checked by CI:
+python -m py_compile main.py scripts\generate_proposals.py scripts\run_short_term_agent.py scripts\evaluate_runs.py scripts\verify_ssl.py src\agent\ollama_client.py src\agent\short_term_proposals.py src\data\fetcher.py src\data\finland.py src\data\network.py src\data\prices.py src\data\sp500.py src\models\candidate.py src\screen\scorer.py

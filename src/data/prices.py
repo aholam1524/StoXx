@@ -16,6 +16,18 @@ import yfinance as yf  # noqa: E402
 BENCHMARKS = ("SPY", "QQQ")
 
 
+def _liquidity_tier(dollar_volume: float | None) -> str | None:
+    if dollar_volume is None:
+        return None
+    if dollar_volume >= 200_000_000:
+        return "high"
+    if dollar_volume >= 50_000_000:
+        return "medium"
+    if dollar_volume >= 10_000_000:
+        return "low"
+    return "thin"
+
+
 def _safe_float(value: object) -> float | None:
     if value is None:
         return None
@@ -115,12 +127,19 @@ def enrich_short_term_metrics(
     for benchmark in BENCHMARKS:
         frame = _symbol_frame(history, benchmark)
         if frame.empty or "Close" not in frame:
-            benchmark_returns[benchmark] = {"1d": None, "5d": None}
+            benchmark_returns[benchmark] = {
+                "1d": None,
+                "5d": None,
+                "10d": None,
+                "20d": None,
+            }
             continue
         closes = frame.dropna(subset=["Close"])["Close"].astype(float)
         benchmark_returns[benchmark] = {
             "1d": _return(closes, 1),
             "5d": _return(closes, 5),
+            "10d": _return(closes, 10),
+            "20d": _return(closes, 20),
         }
 
     by_symbol = {row.symbol: row for row in rows}
@@ -161,13 +180,25 @@ def enrich_short_term_metrics(
             if latest_volume is not None and avg_volume_5 is not None and avg_volume_5 > 0:
                 row.volume_ratio_5d = latest_volume / avg_volume_5
         if len(volumes) >= 21:
-            avg_volume_20 = _safe_float(volumes.iloc[-21:-1].mean())
+            trailing_20 = volumes.iloc[-21:-1]
+            avg_volume_20 = _safe_float(trailing_20.mean())
             if latest_volume is not None and avg_volume_20 is not None and avg_volume_20 > 0:
                 row.volume_ratio_20d = latest_volume / avg_volume_20
+                volume_std_20 = _safe_float(trailing_20.std())
+                if volume_std_20 is not None and volume_std_20 > 0:
+                    row.volume_z_score_20d = (latest_volume - avg_volume_20) / volume_std_20
             if avg_volume_5 is not None and avg_volume_20 is not None and avg_volume_20 > 0:
                 row.volume_trend_5d_20d = avg_volume_5 / avg_volume_20
+            if avg_volume_20 is not None and avg_volume_20 > 0:
+                recent_5 = volumes.tail(5)
+                recent_10 = volumes.tail(10)
+                if len(recent_5) == 5:
+                    row.volume_persistence_5d = _safe_float((recent_5 > avg_volume_20).sum() / 5)
+                if len(recent_10) == 10:
+                    row.volume_persistence_10d = _safe_float((recent_10 > avg_volume_20).sum() / 10)
         if latest_close is not None and latest_volume is not None:
             row.dollar_volume = latest_close * latest_volume
+            row.liquidity_tier = _liquidity_tier(row.dollar_volume)
 
         last_5 = frame.tail(5)
         high_5d = _safe_float(last_5["High"].max()) if "High" in last_5 else None
@@ -211,6 +242,20 @@ def enrich_short_term_metrics(
                 row.rel_strength_spy_5d = row.return_5d - spy_5d
             if qqq_5d is not None:
                 row.rel_strength_qqq_5d = row.return_5d - qqq_5d
+        if row.return_10d is not None:
+            spy_10d = benchmark_returns.get("SPY", {}).get("10d")
+            qqq_10d = benchmark_returns.get("QQQ", {}).get("10d")
+            if spy_10d is not None:
+                row.rel_strength_spy_10d = row.return_10d - spy_10d
+            if qqq_10d is not None:
+                row.rel_strength_qqq_10d = row.return_10d - qqq_10d
+        if row.return_20d is not None:
+            spy_20d = benchmark_returns.get("SPY", {}).get("20d")
+            qqq_20d = benchmark_returns.get("QQQ", {}).get("20d")
+            if spy_20d is not None:
+                row.rel_strength_spy_20d = row.return_20d - spy_20d
+            if qqq_20d is not None:
+                row.rel_strength_qqq_20d = row.return_20d - qqq_20d
         row.current_price = latest_close
 
     return rows
