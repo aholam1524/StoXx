@@ -1,4 +1,4 @@
-# Free Short-Term Stock Research Agent
+# Short-Term Stock Research Agent
 
 Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then generating short-term research notes for a 1-day to 1-week watchlist. It uses free data sources and local-only generation by default.
 
@@ -231,7 +231,7 @@ This project uses GitHub Actions for pull-request validation and main-branch art
 Branch flow:
 
 - Push to `dev` runs validation and opens a pull request into `test` if validation passes.
-- Review and merge the automated `dev` -> `test` pull request when you are ready.
+- Review and merge the automated `dev` -> `test` pull request when ready.
 - Open pull requests into `main` for release-ready validation.
 - Pushes to `main` create a downloadable source zip artifact.
 
