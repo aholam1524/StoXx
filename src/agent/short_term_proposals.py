@@ -48,6 +48,29 @@ FACTOR_EXPLANATIONS = {
     "extension": "Stretch/risk control: RSI, ATR, gap size, move-vs-ATR, and position above the 20D low. Higher is less stretched.",
 }
 
+FACTOR_TARGET_RANGES = [
+    (
+        "Trend",
+        "Good: score >= 0.70 with price above SMA20, positive SMA 5/20, and frequent up days. Mixed: 0.45-0.69. Weak: < 0.45 or price structure below average.",
+    ),
+    (
+        "Momentum",
+        "Good: score >= 0.70 with positive 5D/10D/20D returns. Mixed: 0.45-0.69. Weak: < 0.45 or fading/negative recent returns.",
+    ),
+    (
+        "Relative strength",
+        "Good: score >= 0.70 with positive SPY/QQQ outperformance, especially 10D/20D. Mixed: 0.45-0.69. Weak: < 0.45 or benchmark underperformance.",
+    ),
+    (
+        "Participation",
+        "Good: score >= 0.70 with relative volume > 1.0x, positive volume z-score, persistence, and non-thin liquidity. Mixed: 0.45-0.69. Weak: < 0.45 or thin/fading volume.",
+    ),
+    (
+        "Extension control",
+        "Good: score >= 0.70 means less stretched. Mixed: 0.45-0.69. Risky: < 0.45, often from high RSI, high ATR, a large gap, or being far above the 20D low.",
+    ),
+]
+
 METRIC_EXPLANATIONS = [
     ("score", "Composite rank score used to order candidates."),
     ("opportunity_score", "Weighted average of factor scores before risk adjustment."),
@@ -86,6 +109,14 @@ def _metric_guide() -> list[str]:
         "- **Z-score (`z`):** How unusual the raw value is versus the screened universe average. Positive is above average; negative is below average.",
         "- **Weight:** The component's influence inside that factor formula.",
         "- **Regime language:** The setup describes a conditional market regime, not a price forecast.",
+        "",
+        "### Factor Target Ranges",
+        "",
+        "- **General score guide:** >= 0.70 is strong/good, 0.45-0.69 is mixed/watch, and < 0.45 is weak or risky for that bucket.",
+        *[
+            f"- **{factor}:** {description}"
+            for factor, description in FACTOR_TARGET_RANGES
+        ],
         "",
         "### Factor Glossary",
         "",
