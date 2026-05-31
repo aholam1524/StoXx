@@ -75,12 +75,17 @@ METRIC_EXPLANATIONS = [
     ("score", "Composite rank score used to order candidates."),
     ("opportunity_score", "Weighted average of factor scores before risk adjustment."),
     ("risk_score", "Continuous short-term risk score from extension, volatility, liquidity, trend failure, and event components."),
+    ("risk_details", "Component-level breakdown of the risk score, including weights, contributions, and metric scores."),
     ("confidence_score", "Blend of opportunity and risk; it is not a price prediction."),
     ("return_1d/5d/10d/20d", "Recent total return over the named trading window."),
     ("rel_strength_*", "Candidate return minus SPY or QQQ return for the same window."),
+    ("sector_relative_strength_*", "Candidate return minus the median return of its sector peers in the screened universe."),
+    ("market_regime_score", "Broad SPY/QQQ backdrop score from recent benchmark trend and moving-average position."),
+    ("close_location_1d/5d/20d", "Where the close sits inside the day or recent range; 1.0 means near the high."),
     ("volume_ratio_5d/20d", "Latest volume divided by the prior 5D or 20D average."),
     ("volume_trend_5d_20d", "Recent 5D average volume divided by the 20D average volume."),
     ("volume_persistence_5d/10d", "Share of recent days with volume above the 20D average."),
+    ("up_volume_ratio_10d", "Volume on up days divided by volume on down days over the last 10 sessions."),
     ("volume_z_score_20d", "How many standard deviations latest volume is from the trailing 20D average."),
     ("liquidity_tier", "Dollar-volume bucket: high, medium, low, or thin."),
     ("dollar_volume", "Latest close multiplied by latest volume."),
@@ -92,6 +97,8 @@ METRIC_EXPLANATIONS = [
     ("atr_14_pct", "14D average true range as a percent of price; higher means more volatility."),
     ("rsi_14", "14D relative strength index; high values can indicate stretch."),
     ("gap_1d", "Latest open compared with the prior close."),
+    ("failed_gap_or_fade", "True when a gap/strong session closes weakly inside the daily range."),
+    ("setup_details", "Setup-specific scores used to diagnose which setup style the candidate best fits."),
     ("upcoming_earnings_days", "Days until earnings; negative means the date is already past."),
 ]
 
@@ -180,12 +187,15 @@ def _factor_detail_value(metric: str, value: float | None) -> str:
         "gap",
         "atr",
         "volume_persistence",
+        "sector_relative_strength",
+        "close_location",
     )
     multiple_metrics = {
         "volume_ratio_5d",
         "volume_ratio_20d",
         "volume_trend_5d_20d",
         "stretch_vs_atr",
+        "up_volume_ratio_10d",
     }
     if metric == "dollar_volume":
         return _market_cap(value)
@@ -236,6 +246,59 @@ def _factor_details_block(candidate: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _risk_details_block(candidate: dict[str, Any]) -> list[str]:
+    details = candidate.get("risk_details") or {}
+    components = details.get("components") if isinstance(details, dict) else None
+    if not isinstance(components, dict) or not components:
+        return []
+
+    lines = [
+        "<details>",
+        "<summary><strong>Risk details</strong> - expand for component math</summary>",
+        "",
+        "Risk fields: `score` is the bucket risk from 0 to 1, `weight` is bucket influence, and `contribution` is the weighted risk added to the final score.",
+        "",
+    ]
+    for name in ["extension", "volatility", "liquidity", "trend_failure", "event"]:
+        component = components.get(name)
+        if not isinstance(component, dict):
+            continue
+        label = str(component.get("label") or name).replace("_", " ").title()
+        lines.append(f"**{label}**")
+        lines.append(
+            f"- Score {_num(component.get('score'))}; weight {_num(component.get('weight'))}; "
+            f"contribution {_num(component.get('contribution'))}; severity {component.get('severity') or 'n/a'}."
+        )
+        if component.get("evidence"):
+            lines.append(f"- Evidence: {component.get('evidence')}")
+        for metric in component.get("metrics") or []:
+            if not isinstance(metric, dict):
+                continue
+            metric_name = str(metric.get("metric") or "n/a")
+            lines.append(
+                f"  - {metric_name}: raw {_factor_detail_value(metric_name, metric.get('raw'))}; "
+                f"risk score {_num(metric.get('score'))}; range {_num(metric.get('low'))}-{_num(metric.get('high'))}."
+            )
+        lines.append("")
+    lines.append("</details>")
+    return lines
+
+
+def _setup_details_block(candidate: dict[str, Any]) -> list[str]:
+    details = candidate.get("setup_details") or {}
+    setups = details.get("setups") if isinstance(details, dict) else None
+    if not isinstance(setups, dict) or not setups:
+        return []
+    lines = [
+        "**Setup diagnostics:**",
+        f"- Best diagnostic setup: {str(details.get('best_setup_score') or 'n/a').replace('_', ' ')} with score {_num(details.get('best_score'))}.",
+    ]
+    for name, payload in setups.items():
+        if isinstance(payload, dict):
+            lines.append(f"- {name.replace('_', ' ')}: {_num(payload.get('score'))}.")
+    return lines
+
+
 def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
@@ -246,15 +309,17 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
         "**Price action:**",
         f"- Returns: 1D {_pct(candidate.get('return_1d'))}; 5D {_pct(candidate.get('return_5d'))}; 10D {_pct(candidate.get('return_10d'))}; 20D {_pct(candidate.get('return_20d'))}.",
         f"- Trend quality: SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}; close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}; up days 5D {_pct(candidate.get('up_day_ratio_5d'))}; up days 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
-        f"- Range and volatility: 5D high {_pct(candidate.get('distance_from_5d_high'))}; 5D low {_pct(candidate.get('distance_from_5d_low'))}; 20D high {_pct(candidate.get('distance_from_20d_high'))}; 20D low {_pct(candidate.get('distance_from_20d_low'))}; ATR14 {_pct(candidate.get('atr_14_pct'))}; gap {_pct(candidate.get('gap_1d'))}; RSI14 {_num(candidate.get('rsi_14'))}.",
+        f"- Range and volatility: 5D high {_pct(candidate.get('distance_from_5d_high'))}; 5D low {_pct(candidate.get('distance_from_5d_low'))}; 20D high {_pct(candidate.get('distance_from_20d_high'))}; 20D low {_pct(candidate.get('distance_from_20d_low'))}; close location 1D {_pct(candidate.get('close_location_1d'))}; 5D {_pct(candidate.get('close_location_5d'))}; 20D {_pct(candidate.get('close_location_20d'))}; ATR14 {_pct(candidate.get('atr_14_pct'))}; gap {_pct(candidate.get('gap_1d'))}; RSI14 {_num(candidate.get('rsi_14'))}; fade flag {candidate.get('failed_gap_or_fade')}.",
         "",
         "**Benchmark relative strength:**",
         f"- Versus SPY: 1D {_pct(candidate.get('rel_strength_spy_1d'))}; 5D {_pct(candidate.get('rel_strength_spy_5d'))}; 10D {_pct(candidate.get('rel_strength_spy_10d'))}; 20D {_pct(candidate.get('rel_strength_spy_20d'))}.",
         f"- Versus QQQ: 1D {_pct(candidate.get('rel_strength_qqq_1d'))}; 5D {_pct(candidate.get('rel_strength_qqq_5d'))}; 10D {_pct(candidate.get('rel_strength_qqq_10d'))}; 20D {_pct(candidate.get('rel_strength_qqq_20d'))}.",
+        f"- Versus sector peers: 5D {_pct(candidate.get('sector_relative_strength_5d'))}; 10D {_pct(candidate.get('sector_relative_strength_10d'))}; 20D {_pct(candidate.get('sector_relative_strength_20d'))}.",
+        f"- Market regime: {_num(candidate.get('market_regime_score'))} ({candidate.get('market_regime_label') or 'n/a'}).",
         "",
         "**Volume and liquidity:**",
         f"- Relative volume: 5D {_num(candidate.get('volume_ratio_5d'))}x; 20D {_num(candidate.get('volume_ratio_20d'))}x; 5D/20D trend {_num(candidate.get('volume_trend_5d_20d'))}x.",
-        f"- Participation evidence: volume z-score {_num(candidate.get('volume_z_score_20d'))}; elevated-volume persistence 5D {_pct(candidate.get('volume_persistence_5d'))}; 10D {_pct(candidate.get('volume_persistence_10d'))}.",
+        f"- Participation evidence: volume z-score {_num(candidate.get('volume_z_score_20d'))}; elevated-volume persistence 5D {_pct(candidate.get('volume_persistence_5d'))}; 10D {_pct(candidate.get('volume_persistence_10d'))}; up/down volume 10D {_num(candidate.get('up_volume_ratio_10d'))}x.",
         f"- Liquidity: tier {candidate.get('liquidity_tier') or 'n/a'}; dollar volume {_market_cap(candidate.get('dollar_volume'))}.",
         "",
         "**Other context:**",
@@ -286,13 +351,20 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
     rel_spy_20d = candidate.get("rel_strength_spy_20d")
     rel_qqq_10d = candidate.get("rel_strength_qqq_10d")
     rel_qqq_20d = candidate.get("rel_strength_qqq_20d")
+    sector_rs_10d = candidate.get("sector_relative_strength_10d")
+    sector_rs_20d = candidate.get("sector_relative_strength_20d")
     volume_persistence_5d = candidate.get("volume_persistence_5d")
     volume_persistence_10d = candidate.get("volume_persistence_10d")
     volume_z_score = candidate.get("volume_z_score_20d")
+    up_volume_ratio = candidate.get("up_volume_ratio_10d")
     liquidity_tier = candidate.get("liquidity_tier")
     atr = candidate.get("atr_14_pct")
     sma_ratio = candidate.get("sma_5_20_ratio")
     close_vs_sma = candidate.get("close_vs_sma_20")
+    close_location_20d = candidate.get("close_location_20d")
+    market_regime_score = candidate.get("market_regime_score")
+    market_regime_label = candidate.get("market_regime_label")
+    failed_gap_or_fade = candidate.get("failed_gap_or_fade")
     up_day_5d = candidate.get("up_day_ratio_5d")
     if return_1d is not None:
         if return_1d > 0:
@@ -318,6 +390,8 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(f"Recent 5-day volume trend is {_num(volume_trend)}x the 20-day average.")
     if volume_z_score is not None:
         observations.append(f"Latest volume z-score versus the trailing 20 days is {_num(volume_z_score)}.")
+    if up_volume_ratio is not None:
+        observations.append(f"10-day up/down volume ratio is {_num(up_volume_ratio)}x.")
     if volume_persistence_5d is not None:
         observations.append(f"Elevated-volume persistence over 5 days is {_pct(volume_persistence_5d)}.")
     if volume_persistence_10d is not None:
@@ -328,6 +402,8 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(f"Price is {_pct(distance_high)} from the 5-day high.")
     if distance_high_20d is not None:
         observations.append(f"Price is {_pct(distance_high_20d)} from the 20-day high.")
+    if close_location_20d is not None:
+        observations.append(f"20-day close location is {_pct(close_location_20d)}.")
     if rsi is not None:
         observations.append(f"RSI 14 is {_num(rsi)}.")
     if sma_ratio is not None:
@@ -348,6 +424,14 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(f"10-day relative strength vs QQQ is {_pct(rel_qqq_10d)}.")
     if rel_qqq_20d is not None:
         observations.append(f"20-day relative strength vs QQQ is {_pct(rel_qqq_20d)}.")
+    if sector_rs_10d is not None:
+        observations.append(f"10-day relative strength vs sector peers is {_pct(sector_rs_10d)}.")
+    if sector_rs_20d is not None:
+        observations.append(f"20-day relative strength vs sector peers is {_pct(sector_rs_20d)}.")
+    if market_regime_score is not None:
+        observations.append(f"Market regime score is {_num(market_regime_score)} ({market_regime_label or 'n/a'}).")
+    if failed_gap_or_fade:
+        observations.append("Failed gap or intraday fade risk is flagged.")
     if atr is not None:
         observations.append(f"ATR 14 is {_pct(atr)} of price.")
     observations.extend(candidate.get("reasons") or [])
@@ -365,8 +449,12 @@ def _proposal_highlights(candidate: dict[str, Any]) -> list[str]:
     volume_ratio = candidate.get("volume_ratio_5d")
     volume_ratio_20d = candidate.get("volume_ratio_20d")
     volume_trend = candidate.get("volume_trend_5d_20d")
+    volume_z_score = candidate.get("volume_z_score_20d")
+    liquidity_tier = candidate.get("liquidity_tier")
     rel_spy = candidate.get("rel_strength_spy_5d")
     rel_qqq = candidate.get("rel_strength_qqq_5d")
+    rel_spy_10d = candidate.get("rel_strength_spy_10d")
+    rel_qqq_10d = candidate.get("rel_strength_qqq_10d")
     rsi = candidate.get("rsi_14")
     distance_high = candidate.get("distance_from_5d_high")
     sma_ratio = candidate.get("sma_5_20_ratio")
@@ -452,6 +540,10 @@ def _deterministic_proposal(candidate: dict[str, Any]) -> str:
             "",
             *_factor_details_block(candidate),
             "",
+            *_risk_details_block(candidate),
+            "",
+            *_setup_details_block(candidate),
+            "",
             *_metric_block(candidate),
             "",
             "**Why it screens well:**",
@@ -480,6 +572,10 @@ def _format_ollama_json(candidate: dict[str, Any], payload: dict[str, Any]) -> s
         *_factor_summary_block(candidate),
         "",
         *_factor_details_block(candidate),
+        "",
+        *_risk_details_block(candidate),
+        "",
+        *_setup_details_block(candidate),
         "",
         *_metric_block(candidate),
         "",
@@ -533,6 +629,7 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
         "volume_persistence_5d",
         "volume_persistence_10d",
         "volume_z_score_20d",
+        "up_volume_ratio_10d",
         "liquidity_tier",
         "rel_strength_spy_5d",
         "rel_strength_spy_10d",
@@ -540,6 +637,11 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
         "rel_strength_qqq_5d",
         "rel_strength_qqq_10d",
         "rel_strength_qqq_20d",
+        "sector_relative_strength_10d",
+        "sector_relative_strength_20d",
+        "market_regime_score",
+        "close_location_20d",
+        "failed_gap_or_fade",
         "sma_5_20_ratio",
         "close_vs_sma_20",
         "up_day_ratio_5d",
@@ -617,6 +719,12 @@ Candidate facts:
 - 10-day relative strength vs QQQ: {_pct(candidate.get("rel_strength_qqq_10d"))}
 - 20-day relative strength vs SPY: {_pct(candidate.get("rel_strength_spy_20d"))}
 - 20-day relative strength vs QQQ: {_pct(candidate.get("rel_strength_qqq_20d"))}
+- 10-day relative strength vs sector peers: {_pct(candidate.get("sector_relative_strength_10d"))}
+- 20-day relative strength vs sector peers: {_pct(candidate.get("sector_relative_strength_20d"))}
+- Market regime: {_num(candidate.get("market_regime_score"))} ({candidate.get("market_regime_label") or "n/a"})
+- Close location 1D/5D/20D: {_pct(candidate.get("close_location_1d"))} / {_pct(candidate.get("close_location_5d"))} / {_pct(candidate.get("close_location_20d"))}
+- 10-day up/down volume ratio: {_num(candidate.get("up_volume_ratio_10d"))}x
+- Failed gap or fade flag: {candidate.get("failed_gap_or_fade")}
 - Setup type: {candidate.get("setup_type")}
 - Opportunity score: {_num(candidate.get("opportunity_score"))}
 - Risk score: {_num(candidate.get("risk_score"))}
@@ -646,7 +754,7 @@ Required JSON schema:
   "plan": ["2-4 bullets focused on what to watch"],
   "risks": ["2-4 bullets using only allowed risk notes"],
   "verdict": "one cautious sentence",
-  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
+  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "up_volume_ratio_10d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sector_relative_strength_10d", "sector_relative_strength_20d", "market_regime_score", "close_location_20d", "failed_gap_or_fade", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
 }}
 """.strip()
 
@@ -770,18 +878,26 @@ SUMMARY_COLUMNS = [
     "rel_strength_qqq_5d",
     "rel_strength_qqq_10d",
     "rel_strength_qqq_20d",
+    "sector_relative_strength_5d",
+    "sector_relative_strength_10d",
+    "sector_relative_strength_20d",
     "volume_ratio_5d",
     "volume_ratio_20d",
     "volume_trend_5d_20d",
     "volume_persistence_5d",
     "volume_persistence_10d",
     "volume_z_score_20d",
+    "up_volume_ratio_10d",
     "liquidity_tier",
     "distance_from_5d_high",
     "distance_from_5d_low",
     "distance_from_20d_high",
     "distance_from_20d_low",
+    "close_location_1d",
+    "close_location_5d",
+    "close_location_20d",
     "gap_1d",
+    "failed_gap_or_fade",
     "sma_5_20_ratio",
     "close_vs_sma_20",
     "up_day_ratio_5d",
@@ -789,12 +905,16 @@ SUMMARY_COLUMNS = [
     "dollar_volume",
     "atr_14_pct",
     "rsi_14",
+    "market_regime_score",
+    "market_regime_label",
     "upcoming_earnings_days",
     "risk_flags",
+    "risk_details",
     "reason_codes",
     "factor_scores",
     "factor_summaries",
     "factor_details",
+    "setup_details",
 ]
 
 
@@ -807,8 +927,10 @@ def write_metrics_summary(candidates: list[dict[str, Any]], output_path: Path) -
             row = {column: candidate.get(column) for column in SUMMARY_COLUMNS}
             row["rank"] = rank
             row["risk_flags"] = "; ".join(candidate.get("risk_flags") or [])
+            row["risk_details"] = json.dumps(candidate.get("risk_details") or {}, sort_keys=True)
             row["reason_codes"] = "; ".join(candidate.get("reason_codes") or [])
             row["factor_scores"] = json.dumps(candidate.get("factor_scores") or {}, sort_keys=True)
             row["factor_summaries"] = "; ".join(candidate.get("factor_summaries") or [])
             row["factor_details"] = json.dumps(candidate.get("factor_details") or {}, sort_keys=True)
+            row["setup_details"] = json.dumps(candidate.get("setup_details") or {}, sort_keys=True)
             writer.writerow(row)
