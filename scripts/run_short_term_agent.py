@@ -9,11 +9,32 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+def universe_label(universes: list[str]) -> str:
+    selected = set(universes)
+    if selected == {"sp500", "finland"}:
+        return "all"
+    if selected == {"sp500"}:
+        return "us"
+    if selected == {"finland"}:
+        return "finland"
+    return "custom-" + "-".join(sorted(selected))
+
+
+def configured_universes() -> list[str]:
+    config_path = ROOT / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    universes = config.get("universes") or [config.get("universe", "sp500")]
+    return [str(universe) for universe in universes]
+
+
+def run_id(universes: list[str]) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S_utc")
+    return f"{timestamp}_{universe_label(universes)}"
 
 
 def run(command: list[str]) -> None:
@@ -55,7 +76,8 @@ def main() -> int:
         help="Try local Ollama wording; unsafe outputs fall back to fact-only notes.",
     )
     args = parser.parse_args()
-    run_dir = ROOT / "outputs" / "runs" / run_id()
+    selected_universes = args.universe or configured_universes()
+    run_dir = ROOT / "outputs" / "runs" / run_id(selected_universes)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     screen_cmd = [
