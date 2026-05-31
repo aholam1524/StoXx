@@ -39,8 +39,10 @@ short_term_scoring:
     trend:
       sma_5_20_ratio: 0.30
       close_vs_sma_20: 0.25
-      return_20d: 0.25
-      up_day_ratio_10d: 0.20
+      return_20d: 0.20
+      up_day_ratio_10d: 0.15
+      close_location_20d: 0.10
+      market_regime_score: 0.05
     momentum:
       return_1d: 0.15
       return_5d: 0.30
@@ -55,17 +57,52 @@ short_term_scoring:
       rel_strength_qqq_10d: 0.15
       rel_strength_spy_20d: 0.15
       rel_strength_qqq_20d: 0.10
+      sector_relative_strength_5d: 0.08
+      sector_relative_strength_10d: 0.12
+      sector_relative_strength_20d: 0.10
     participation:
       volume_ratio_5d: 0.20
-      volume_ratio_20d: 0.20
+      volume_ratio_20d: 0.15
       volume_trend_5d_20d: 0.15
       volume_persistence_5d: 0.15
       volume_persistence_10d: 0.15
       volume_z_score_20d: 0.10
+      up_volume_ratio_10d: 0.05
       dollar_volume: 0.05
     extension:
-      rsi_control: 0.30
+      rsi_control: 0.25
       atr_14_pct: 0.25
       stretch_vs_atr: 0.20
       distance_from_20d_low: 0.15
       abs_gap_1d: 0.10
+      failed_gap_or_fade: 0.05
+  risk_levels:
+    low_max: 0.25
+    medium_max: 0.50
+  risk_weights:
+    extension: 0.33
+    volatility: 0.20
+    liquidity: 0.20
+    trend_failure: 0.15
+    event: 0.12
+  risk_thresholds:
+    extension:
+      rsi_14: [60, 80]
+      return_5d: [0.04, 0.16]
+      return_10d: [0.08, 0.24]
+      return_20d: [0.10, 0.30]
+      distance_from_20d_low: [0.08, 0.28]
+      distance_from_20d_high: [-0.08, 0.02]
+      stretch_vs_atr: [1.0, 3.5]
+    volatility:
+      atr_14_pct: [0.02, 0.07]
+      abs_gap_1d: [0.01, 0.06]
+      abs_return_1d: [0.02, 0.08]
+    liquidity:
+      dollar_volume: [5_000_000, 100_000_000]
+      volume_ratio_5d: [1.5, 4.0]
+      volume_persistence_10d: [0.2, 0.8]
+    trend_failure:
+      close_vs_sma_20: [0.0, 0.08]
+      sma_5_20_ratio: [0.0, 0.06]
+      up_day_ratio_10d: [0.3, 0.7]

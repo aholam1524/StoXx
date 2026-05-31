@@ -47,10 +47,20 @@ class StockMetrics:
     rel_strength_qqq_5d: float | None = None
     rel_strength_qqq_10d: float | None = None
     rel_strength_qqq_20d: float | None = None
+    sector_relative_strength_5d: float | None = None
+    sector_relative_strength_10d: float | None = None
+    sector_relative_strength_20d: float | None = None
     volume_persistence_5d: float | None = None
     volume_persistence_10d: float | None = None
     volume_z_score_20d: float | None = None
+    up_volume_ratio_10d: float | None = None
     liquidity_tier: str | None = None
+    close_location_1d: float | None = None
+    close_location_5d: float | None = None
+    close_location_20d: float | None = None
+    market_regime_score: float | None = None
+    market_regime_label: str | None = None
+    failed_gap_or_fade: bool | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
@@ -58,6 +68,8 @@ class StockMetrics:
     factor_scores: dict[str, float] | None = None
     factor_summaries: list[str] | None = None
     factor_details: dict[str, Any] | None = None
+    risk_details: dict[str, Any] | None = None
+    setup_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -111,10 +123,20 @@ class ScoredCandidate:
     rel_strength_qqq_5d: float | None = None
     rel_strength_qqq_10d: float | None = None
     rel_strength_qqq_20d: float | None = None
+    sector_relative_strength_5d: float | None = None
+    sector_relative_strength_10d: float | None = None
+    sector_relative_strength_20d: float | None = None
     volume_persistence_5d: float | None = None
     volume_persistence_10d: float | None = None
     volume_z_score_20d: float | None = None
+    up_volume_ratio_10d: float | None = None
     liquidity_tier: str | None = None
+    close_location_1d: float | None = None
+    close_location_5d: float | None = None
+    close_location_20d: float | None = None
+    market_regime_score: float | None = None
+    market_regime_label: str | None = None
+    failed_gap_or_fade: bool | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
@@ -122,6 +144,8 @@ class ScoredCandidate:
     factor_scores: dict[str, float] | None = None
     factor_summaries: list[str] | None = None
     factor_details: dict[str, Any] | None = None
+    risk_details: dict[str, Any] | None = None
+    setup_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
