@@ -2,7 +2,7 @@
 
 Generated at: 2026-05-31T11:00:02.985332+00:00
 Model: `qwen2.5:0.5b`
-Source: `outputs/runs/20260531_105712/screen_results.json`
+Source: `outputs/runs/2026-05-31_10-57-12_utc_all/screen_results.json`
 
 Not financial advice. Short-term trading is high risk. Use this only as research and define your own position sizing and risk limits.
 
