@@ -4,6 +4,8 @@ Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then
 
 > Not financial advice. This project is for research only. Short-term trading is high risk.
 
+See `outputs/proposals.md` for a committed sample generated report. Live run history under `outputs/runs/` and the moving latest copy under `outputs/latest/` are ignored by Git.
+
 ## What It Does
 
 - Screens S&P 500 and Nasdaq Helsinki stocks with free Yahoo Finance data through `yfinance`.
@@ -12,26 +14,25 @@ Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then
 - Filters out very large companies with `max_market_cap` in `config.yaml`.
 - Scores both opportunity and risk. Risk has a non-zero floor because short-term stock risk is never zero.
 - Labels setups as `momentum continuation`, `relative strength`, `breakout watch`, `overextended`, `earnings risk`, or `pullback risk`.
-- Generates Markdown and JSON proposal notes from the ranked candidates.
+- Generates Markdown, JSON, and CSV proposal notes from the ranked candidates.
+- Adds setup and lifecycle diagnostics to explain whether a candidate looks more like continuation, exhaustion, reversal, or volatility expansion.
 
 ## Current Short-Term Signals
 
-- 1-day return
-- 5-day return
-- 10-day return
-- 20-day return
-- 5-day and 20-day relative volume
-- 5-day volume trend versus 20-day volume
-- dollar volume for liquidity context
-- distance from 5-day and 20-day highs/lows
-- 5-day average versus 20-day average
-- close versus 20-day average
-- 5-day and 10-day up-day ratios
-- RSI 14
-- ATR 14 as percent of price
-- gap from previous close to latest open
-- relative strength vs `SPY` and `QQQ`
-- upcoming earnings risk when available
+- Recent returns: 1-day, 5-day, 10-day, and 20-day returns.
+- Trend structure: 5-day average versus 20-day average, close versus 20-day average, and 5-day/10-day up-day ratios.
+- Range position: distance from 5-day and 20-day highs/lows, plus close location inside the 1-day, 5-day, and 20-day ranges.
+- Benchmark context: relative strength versus `SPY` and `QQQ` across multiple windows.
+- Sector context: relative strength versus the median return of same-sector names in the screened universe.
+- Market regime: broad `SPY`/`QQQ` backdrop score and regime label.
+- Volume participation: 5-day and 20-day relative volume, 5-day volume trend versus 20-day volume, elevated-volume persistence, and latest-volume z-score.
+- Volume quality: up-volume/down-volume ratio, volume acceleration, price/volume efficiency, effort-versus-result, and distribution-day count.
+- Liquidity context: dollar volume and liquidity tier.
+- Extension and volatility: RSI 14, ATR 14 as percent of price, gap from previous close to latest open, and stretch versus ATR.
+- Failure detectors: failed gap or intraday fade, relative-strength decoupling, and distribution pressure.
+- Setup diagnostics: scores for trend confirmation, momentum continuation, breakout watch, and pullback risk.
+- Lifecycle diagnostics: heuristic phase scores for ignition, expansion, euphoria, exhaustion, and reversal, plus continuation/mean-reversion/volatility-expansion probabilities.
+- Upcoming earnings risk when available.
 
 ## Project Layout
 
@@ -51,10 +52,11 @@ Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then
 │   ├── models/
 │   └── screen/
 └── outputs/
-    └── .gitkeep
+    ├── .gitkeep
+    └── proposals.md
 ```
 
-Generated files in `outputs/` are ignored by Git to avoid committing machine-specific paths or stale research results.
+Generated files in `outputs/` are ignored by Git to avoid committing machine-specific paths or stale research results. The exception is `outputs/proposals.md`, which is intentionally committed as a sample report.
 
 ## Setup
 
@@ -211,6 +213,7 @@ For Finnish names, Yahoo usually reports market cap in the local listing currenc
 The `.gitignore` excludes:
 
 - generated files in `outputs/`
+- except `outputs/proposals.md`, which is a committed sample report
 - Python cache files
 - virtual environments
 - `.env` and secret-like files
