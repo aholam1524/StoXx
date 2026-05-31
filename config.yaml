@@ -14,9 +14,7 @@ min_market_cap: 100_000_000
 max_market_cap: 150_000_000_000
 
 filters:
-  require_positive_trailing_pe: true
-  max_trailing_pe: 60
-  max_price_to_book: 8
+  require_positive_trailing_pe: False
   require_positive_revenue_growth: false
 
 scoring:
