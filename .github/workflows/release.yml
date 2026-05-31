@@ -1,0 +1,93 @@
+name: Release Artifact
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  package:
+    name: Build project artifact
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile \
+            main.py \
+            scripts/generate_proposals.py \
+            scripts/run_short_term_agent.py \
+            scripts/evaluate_runs.py \
+            scripts/verify_ssl.py \
+            src/agent/ollama_client.py \
+            src/agent/short_term_proposals.py \
+            src/data/fetcher.py \
+            src/data/finland.py \
+            src/data/network.py \
+            src/data/prices.py \
+            src/data/sp500.py \
+            src/models/candidate.py \
+            src/screen/scorer.py
+
+      - name: Run smoke tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Build zip artifact
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path(".").resolve()
+          output = root / "stock-agent-source.zip"
+          excluded_dirs = {
+              ".git",
+              ".github",
+              ".pytest_cache",
+              ".mypy_cache",
+              ".ruff_cache",
+              ".venv",
+              "venv",
+              "env",
+              "__pycache__",
+              "outputs",
+          }
+          excluded_suffixes = {".pyc", ".pyo", ".log", ".tmp", ".bak"}
+          excluded_names = {".env"}
+
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for path in root.rglob("*"):
+                  relative = path.relative_to(root)
+                  parts = set(relative.parts)
+                  if path == output or path.is_dir():
+                      continue
+                  if parts & excluded_dirs:
+                      continue
+                  if path.suffix in excluded_suffixes:
+                      continue
+                  if path.name in excluded_names or path.name.startswith(".env."):
+                      continue
+                  archive.write(path, relative.as_posix())
+          PY
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-agent-source
+          path: stock-agent-source.zip
+          if-no-files-found: error
