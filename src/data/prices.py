@@ -52,6 +52,13 @@ def _return(closes: pd.Series, periods: int) -> float | None:
     return latest / previous - 1
 
 
+def _up_day_ratio(closes: pd.Series, window: int) -> float | None:
+    changes = closes.diff().dropna().tail(window)
+    if len(changes) < window:
+        return None
+    return _safe_float((changes > 0).sum() / window)
+
+
 def _atr_pct(frame: pd.DataFrame, window: int = 14) -> float | None:
     if len(frame) < window + 1 or not {"High", "Low", "Close"}.issubset(frame.columns):
         return None
@@ -132,35 +139,61 @@ def enrich_short_term_metrics(
         previous_close = _safe_float(closes.iloc[-2])
         latest_open = _safe_float(frame["Open"].iloc[-1]) if "Open" in frame else None
         close_5d_ago = _safe_float(closes.iloc[-6])
+        close_10d_ago = _safe_float(closes.iloc[-11]) if len(closes) >= 11 else None
         close_20d_ago = _safe_float(closes.iloc[-21]) if len(closes) >= 21 else None
 
-        if latest_close and previous_close and previous_close > 0:
+        if latest_close is not None and previous_close is not None and previous_close > 0:
             row.return_1d = latest_close / previous_close - 1
-        if latest_open and previous_close and previous_close > 0:
+        if latest_open is not None and previous_close is not None and previous_close > 0:
             row.gap_1d = latest_open / previous_close - 1
-        if latest_close and close_5d_ago and close_5d_ago > 0:
+        if latest_close is not None and close_5d_ago is not None and close_5d_ago > 0:
             row.return_5d = latest_close / close_5d_ago - 1
-        if latest_close and close_20d_ago and close_20d_ago > 0:
+        if latest_close is not None and close_10d_ago is not None and close_10d_ago > 0:
+            row.return_10d = latest_close / close_10d_ago - 1
+        if latest_close is not None and close_20d_ago is not None and close_20d_ago > 0:
             row.return_20d = latest_close / close_20d_ago - 1
 
+        latest_volume = _safe_float(volumes.iloc[-1]) if len(volumes) else None
+        avg_volume_5 = None
+        avg_volume_20 = None
         if len(volumes) >= 6:
-            latest_volume = _safe_float(volumes.iloc[-1])
-            avg_volume = _safe_float(volumes.iloc[-6:-1].mean())
-            if latest_volume and avg_volume and avg_volume > 0:
-                row.volume_ratio_5d = latest_volume / avg_volume
+            avg_volume_5 = _safe_float(volumes.iloc[-6:-1].mean())
+            if latest_volume is not None and avg_volume_5 is not None and avg_volume_5 > 0:
+                row.volume_ratio_5d = latest_volume / avg_volume_5
         if len(volumes) >= 21:
-            latest_volume = _safe_float(volumes.iloc[-1])
             avg_volume_20 = _safe_float(volumes.iloc[-21:-1].mean())
-            if latest_volume and avg_volume_20 and avg_volume_20 > 0:
+            if latest_volume is not None and avg_volume_20 is not None and avg_volume_20 > 0:
                 row.volume_ratio_20d = latest_volume / avg_volume_20
+            if avg_volume_5 is not None and avg_volume_20 is not None and avg_volume_20 > 0:
+                row.volume_trend_5d_20d = avg_volume_5 / avg_volume_20
+        if latest_close is not None and latest_volume is not None:
+            row.dollar_volume = latest_close * latest_volume
 
         last_5 = frame.tail(5)
         high_5d = _safe_float(last_5["High"].max()) if "High" in last_5 else None
         low_5d = _safe_float(last_5["Low"].min()) if "Low" in last_5 else None
-        if latest_close and high_5d and high_5d > 0:
+        if latest_close is not None and high_5d is not None and high_5d > 0:
             row.distance_from_5d_high = latest_close / high_5d - 1
-        if latest_close and low_5d and low_5d > 0:
+        if latest_close is not None and low_5d is not None and low_5d > 0:
             row.distance_from_5d_low = latest_close / low_5d - 1
+
+        last_20 = frame.tail(20)
+        high_20d = _safe_float(last_20["High"].max()) if "High" in last_20 else None
+        low_20d = _safe_float(last_20["Low"].min()) if "Low" in last_20 else None
+        if latest_close is not None and high_20d is not None and high_20d > 0:
+            row.distance_from_20d_high = latest_close / high_20d - 1
+        if latest_close is not None and low_20d is not None and low_20d > 0:
+            row.distance_from_20d_low = latest_close / low_20d - 1
+
+        if len(closes) >= 20:
+            sma_5 = _safe_float(closes.tail(5).mean())
+            sma_20 = _safe_float(closes.tail(20).mean())
+            if sma_5 is not None and sma_20 is not None and sma_20 > 0:
+                row.sma_5_20_ratio = sma_5 / sma_20 - 1
+            if latest_close is not None and sma_20 is not None and sma_20 > 0:
+                row.close_vs_sma_20 = latest_close / sma_20 - 1
+        row.up_day_ratio_5d = _up_day_ratio(closes, 5)
+        row.up_day_ratio_10d = _up_day_ratio(closes, 10)
 
         row.rsi_14 = _rsi(closes)
         row.atr_14_pct = _atr_pct(frame)

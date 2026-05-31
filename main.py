@@ -50,12 +50,24 @@ def _format_number(value: float | None) -> str:
     return f"{value:.2f}"
 
 
+def _configured_universes(config: dict, cli_universes: list[str] | None) -> list[str]:
+    raw = cli_universes or config.get("universes") or [config.get("universe", "sp500")]
+    if isinstance(raw, str):
+        raw = [raw]
+    universes: list[str] = []
+    for item in raw:
+        value = str(item).strip().lower()
+        if value and value not in universes:
+            universes.append(value)
+    return universes or ["sp500"]
+
+
 def print_results(candidates: list, top_n: int) -> None:
     print(f"\n{DISCLAIMER}\n")
-    print(f"Top {min(top_n, len(candidates))} potentially undervalued S&P 500 names:\n")
+    print(f"Top {min(top_n, len(candidates))} potentially undervalued names:\n")
     header = (
         f"{'Rank':<5} {'Symbol':<8} {'Score':<7} {'P/E':<8} {'P/B':<8} "
-        f"{'PEG':<8} {'Mkt Cap':<10} Sector"
+        f"{'PEG':<8} {'Mkt Cap':<10} {'Market':<25} Sector"
     )
     print(header)
     print("-" * len(header))
@@ -66,7 +78,7 @@ def print_results(candidates: list, top_n: int) -> None:
         peg = f"{c.peg_ratio:.2f}" if c.peg_ratio is not None else "n/a"
         print(
             f"{rank:<5} {c.symbol:<8} {c.score:<7.3f} {pe:<8} {pb:<8} {peg:<8} "
-            f"{format_market_cap(c.market_cap):<10} {c.sector}"
+            f"{format_market_cap(c.market_cap):<10} {(c.market or 'n/a'):<25} {c.sector}"
         )
         print(f"       {c.name}")
         print(f"       Signals: {', '.join(c.reasons)}")
@@ -76,12 +88,13 @@ def print_results(candidates: list, top_n: int) -> None:
 def print_short_term_results(candidates: list, top_n: int) -> None:
     print(f"\n{DISCLAIMER}\n")
     print(
-        f"Top {min(top_n, len(candidates))} short-term S&P 500 candidates "
+        f"Top {min(top_n, len(candidates))} short-term candidates "
         "(1-day to 1-week window):\n"
     )
     header = (
         f"{'Rank':<5} {'Symbol':<8} {'Score':<7} {'Risk':<7} {'Setup':<23} "
-        f"{'1D':<9} {'5D':<9} {'SPY 5D':<9} {'Vol x':<8} {'RSI':<7} {'Mkt Cap':<10}"
+        f"{'1D':<9} {'5D':<9} {'SPY 5D':<9} {'Vol x':<8} {'RSI':<7} "
+        f"{'Mkt Cap':<10} Market"
     )
     print(header)
     print("-" * len(header))
@@ -94,7 +107,8 @@ def print_short_term_results(candidates: list, top_n: int) -> None:
             f"{_format_percent(c.return_1d):<9} {_format_percent(c.return_5d):<9} "
             f"{_format_percent(c.rel_strength_spy_5d):<9} "
             f"{_format_number(c.volume_ratio_5d):<8} "
-            f"{_format_number(c.rsi_14):<7} {format_market_cap(c.market_cap):<10}"
+            f"{_format_number(c.rsi_14):<7} {format_market_cap(c.market_cap):<10} "
+            f"{c.market or 'n/a'}"
         )
         print(f"       {c.name}")
         print(f"       Signals: {', '.join(c.reasons)}")
@@ -132,6 +146,12 @@ def main() -> int:
         help="Only fetch first N symbols (for quick tests)",
     )
     parser.add_argument(
+        "--universe",
+        action="append",
+        choices=("sp500", "finland"),
+        help="Universe to load. Repeat for multiple. Overrides config universes.",
+    )
+    parser.add_argument(
         "--delay",
         type=float,
         default=1.0,
@@ -165,11 +185,13 @@ def main() -> int:
     configure_ssl(insecure=args.insecure_ssl)
 
     from src.data.fetcher import fetch_many, init_yfinance_session, load_demo_metrics  # noqa: E402
+    from src.data.finland import load_finland_symbols, symbol_metadata as finland_metadata  # noqa: E402
     from src.data.prices import enrich_short_term_metrics  # noqa: E402
     from src.data.sp500 import load_sp500_symbols  # noqa: E402
     from src.screen.scorer import score_candidates, score_short_term_candidates  # noqa: E402
 
     config = load_config(args.config)
+    universes = _configured_universes(config, args.universe)
     top_n = args.top if args.top is not None else int(config.get("top_n", 10))
     scoring = config.get("scoring", {})
     short_term_scoring = config.get("short_term_scoring", {})
@@ -187,8 +209,32 @@ def main() -> int:
         print(f"Loaded {len(rows)} demo symbols.")
     else:
         init_yfinance_session(insecure_ssl=args.insecure_ssl)
-        print("Loading S&P 500 universe from Wikipedia...")
-        symbols = load_sp500_symbols()
+        symbols: list[str] = []
+        metadata: dict[str, dict[str, str]] = {}
+
+        if "sp500" in universes:
+            print("Loading S&P 500 universe from Wikipedia...")
+            sp500_symbols = load_sp500_symbols()
+            symbols.extend(sp500_symbols)
+            metadata.update(
+                {
+                    symbol: {
+                        "market": "US / S&P 500",
+                        "exchange": "NYSE/Nasdaq",
+                    }
+                    for symbol in sp500_symbols
+                }
+            )
+            print(f"S&P 500 universe: {len(sp500_symbols)} symbols")
+
+        if "finland" in universes:
+            print("Loading Finnish universe...")
+            finland_symbols = load_finland_symbols()
+            symbols.extend(finland_symbols)
+            metadata.update(finland_metadata(finland_symbols))
+            print(f"Finland universe: {len(finland_symbols)} symbols")
+
+        symbols = list(dict.fromkeys(symbols))
         if args.limit is not None:
             symbols = symbols[: args.limit]
         print(f"Universe: {len(symbols)} symbols")
@@ -201,6 +247,11 @@ def main() -> int:
             "Fetching fundamentals from Yahoo Finance (free, may take several minutes)..."
         )
         rows = fetch_many(symbols, delay_seconds=args.delay, on_progress=progress)
+        for row in rows:
+            row_metadata = metadata.get(row.symbol)
+            if row_metadata is not None:
+                row.market = row_metadata["market"]
+                row.exchange = row_metadata["exchange"]
         print(f"\nFetched metrics for {len(rows)} symbols.")
         if not rows:
             print(
@@ -235,7 +286,8 @@ def main() -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "universe": "sp500",
+            "universe": ",".join(universes),
+            "universes": universes,
             "mode": args.mode,
             "symbol_count": len(symbols),
             "fetched_count": len(rows),

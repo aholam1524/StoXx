@@ -7,6 +7,8 @@ from typing import Any
 
 from src.models.candidate import ScoredCandidate, StockMetrics
 
+MIN_SHORT_TERM_RISK = 0.10
+
 
 def _median(values: list[float]) -> float | None:
     if not values:
@@ -151,6 +153,8 @@ def score_candidates(
                 symbol=row.symbol,
                 name=row.name,
                 sector=row.sector,
+                market=row.market,
+                exchange=row.exchange,
                 score=round(score, 4),
                 trailing_pe=row.trailing_pe,
                 price_to_book=row.price_to_book,
@@ -183,14 +187,40 @@ def score_short_term_candidates(
 
     w_1d = float(scoring.get("return_1d", 0.20))
     w_5d = float(scoring.get("return_5d", 0.25))
+    w_10d = float(scoring.get("return_10d", 0.10))
     w_volume = float(scoring.get("volume_ratio_5d", 0.18))
     w_volume_20 = float(scoring.get("volume_ratio_20d", 0.10))
+    w_volume_trend = float(scoring.get("volume_trend_5d_20d", 0.06))
     w_high = float(scoring.get("near_5d_high", 0.08))
+    w_high_20 = float(scoring.get("near_20d_high", 0.05))
     w_rsi = float(scoring.get("rsi_14", 0.10))
     w_spy = float(scoring.get("relative_spy_5d", 0.14))
     w_qqq = float(scoring.get("relative_qqq_5d", 0.10))
     w_trend = float(scoring.get("return_20d", 0.05))
-    weight_sum = w_1d + w_5d + w_volume + w_volume_20 + w_high + w_rsi + w_spy + w_qqq + w_trend
+    w_sma = float(scoring.get("sma_5_20_ratio", 0.08))
+    w_close_sma = float(scoring.get("close_vs_sma_20", 0.06))
+    w_up_5d = float(scoring.get("up_day_ratio_5d", 0.07))
+    w_up_10d = float(scoring.get("up_day_ratio_10d", 0.05))
+    w_liquidity = float(scoring.get("dollar_volume", 0.04))
+    weight_sum = (
+        w_1d
+        + w_5d
+        + w_10d
+        + w_volume
+        + w_volume_20
+        + w_volume_trend
+        + w_high
+        + w_high_20
+        + w_rsi
+        + w_spy
+        + w_qqq
+        + w_trend
+        + w_sma
+        + w_close_sma
+        + w_up_5d
+        + w_up_10d
+        + w_liquidity
+    )
     if weight_sum <= 0:
         weight_sum = 1.0
 
@@ -203,26 +233,43 @@ def score_short_term_candidates(
         # extreme one-day spikes too heavily.
         one_day = _scale(row.return_1d, -0.03, 0.04)
         five_day = _scale(row.return_5d, -0.05, 0.10)
+        ten_day = _scale(row.return_10d, -0.08, 0.16)
         volume = _scale(row.volume_ratio_5d, 0.75, 2.50)
         volume_20 = _scale(row.volume_ratio_20d, 0.80, 2.75)
+        volume_trend = _scale(row.volume_trend_5d_20d, 0.70, 1.60)
         near_high = _scale(row.distance_from_5d_high, -0.08, 0.0)
+        near_high_20 = _scale(row.distance_from_20d_high, -0.12, 0.0)
         rsi = _ideal_rsi_score(row.rsi_14)
         relative_spy = _scale(row.rel_strength_spy_5d, -0.03, 0.08)
         relative_qqq = _scale(row.rel_strength_qqq_5d, -0.03, 0.08)
         trend_20d = _scale(row.return_20d, -0.08, 0.18)
+        sma_trend = _scale(row.sma_5_20_ratio, -0.04, 0.08)
+        close_vs_sma = _scale(row.close_vs_sma_20, -0.05, 0.10)
+        up_5d = _scale(row.up_day_ratio_5d, 0.20, 0.80)
+        up_10d = _scale(row.up_day_ratio_10d, 0.30, 0.80)
+        liquidity = _scale(row.dollar_volume, 10_000_000, 400_000_000)
 
         opportunity_score = (
             w_1d * one_day
             + w_5d * five_day
+            + w_10d * ten_day
             + w_volume * volume
             + w_volume_20 * volume_20
+            + w_volume_trend * volume_trend
             + w_high * near_high
+            + w_high_20 * near_high_20
             + w_rsi * rsi
             + w_spy * relative_spy
             + w_qqq * relative_qqq
             + w_trend * trend_20d
+            + w_sma * sma_trend
+            + w_close_sma * close_vs_sma
+            + w_up_5d * up_5d
+            + w_up_10d * up_10d
+            + w_liquidity * liquidity
         ) / weight_sum
         risk_score, risk_flags = _short_term_risk(row)
+        risk_level = _risk_level(risk_score)
         confidence_score, expected_direction, reason_codes = _short_term_prediction(
             row,
             opportunity_score,
@@ -234,14 +281,26 @@ def score_short_term_candidates(
         reasons: list[str] = []
         if row.return_5d is not None and row.return_5d > 0.02:
             reasons.append("positive 5-day momentum")
+        if row.return_10d is not None and row.return_10d > 0.03:
+            reasons.append("positive 10-day momentum")
         if row.return_1d is not None and row.return_1d > 0:
             reasons.append("positive latest session")
         if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
             reasons.append("volume above recent average")
         if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
             reasons.append("volume above 20-day average")
+        if row.volume_trend_5d_20d is not None and row.volume_trend_5d_20d > 1.10:
+            reasons.append("5-day volume trend above 20-day average")
         if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
             reasons.append("trading near 5-day high")
+        if row.distance_from_20d_high is not None and row.distance_from_20d_high > -0.03:
+            reasons.append("trading near 20-day high")
+        if row.sma_5_20_ratio is not None and row.sma_5_20_ratio > 0:
+            reasons.append("5-day average above 20-day average")
+        if row.close_vs_sma_20 is not None and row.close_vs_sma_20 > 0:
+            reasons.append("price above 20-day average")
+        if row.up_day_ratio_5d is not None and row.up_day_ratio_5d >= 0.60:
+            reasons.append("most recent sessions closed higher")
         if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
             reasons.append("RSI in constructive range")
         if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
@@ -256,6 +315,8 @@ def score_short_term_candidates(
                 symbol=row.symbol,
                 name=row.name,
                 sector=row.sector,
+                market=row.market,
+                exchange=row.exchange,
                 score=round(score, 4),
                 trailing_pe=row.trailing_pe,
                 price_to_book=row.price_to_book,
@@ -266,17 +327,27 @@ def score_short_term_candidates(
                 reasons=reasons,
                 opportunity_score=round(opportunity_score, 4),
                 risk_score=round(risk_score, 4),
+                risk_level=risk_level,
                 setup_type=setup_type,
                 risk_flags=risk_flags,
                 upcoming_earnings_days=row.upcoming_earnings_days,
                 return_1d=row.return_1d,
                 return_5d=row.return_5d,
+                return_10d=row.return_10d,
                 return_20d=row.return_20d,
                 gap_1d=row.gap_1d,
                 volume_ratio_5d=row.volume_ratio_5d,
                 volume_ratio_20d=row.volume_ratio_20d,
+                volume_trend_5d_20d=row.volume_trend_5d_20d,
                 distance_from_5d_high=row.distance_from_5d_high,
                 distance_from_5d_low=row.distance_from_5d_low,
+                distance_from_20d_high=row.distance_from_20d_high,
+                distance_from_20d_low=row.distance_from_20d_low,
+                sma_5_20_ratio=row.sma_5_20_ratio,
+                close_vs_sma_20=row.close_vs_sma_20,
+                up_day_ratio_5d=row.up_day_ratio_5d,
+                up_day_ratio_10d=row.up_day_ratio_10d,
+                dollar_volume=row.dollar_volume,
                 atr_14_pct=row.atr_14_pct,
                 rsi_14=row.rsi_14,
                 rel_strength_spy_1d=row.rel_strength_spy_1d,
@@ -304,6 +375,9 @@ def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
     if row.return_5d is not None and row.return_5d > 0.15:
         flags.append("large 5-day move")
         risk += 0.22
+    if row.return_10d is not None and row.return_10d > 0.22:
+        flags.append("large 10-day move")
+        risk += 0.15
     if row.rsi_14 is not None and row.rsi_14 > 70:
         flags.append("RSI above 70")
         risk += 0.18
@@ -313,6 +387,25 @@ def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
     if row.atr_14_pct is not None and row.atr_14_pct > 0.06:
         flags.append("high ATR volatility")
         risk += 0.12
+    if (
+        row.atr_14_pct is not None
+        and row.atr_14_pct > 0
+        and row.return_5d is not None
+        and row.return_5d / row.atr_14_pct > 3.0
+    ):
+        flags.append("5-day move stretched vs ATR")
+        risk += 0.12
+    if row.close_vs_sma_20 is not None and row.close_vs_sma_20 < -0.03:
+        flags.append("price below 20-day average")
+        risk += 0.12
+    if (
+        row.distance_from_20d_low is not None
+        and row.distance_from_20d_low > 0.25
+        and row.distance_from_20d_high is not None
+        and row.distance_from_20d_high > -0.02
+    ):
+        flags.append("extended in 20-day range")
+        risk += 0.10
     if row.gap_1d is not None and abs(row.gap_1d) > 0.05:
         flags.append("large opening gap")
         risk += 0.10
@@ -324,9 +417,17 @@ def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
         risk += 0.25
 
     if not flags:
-        flags.append("no major short-term risk flags")
+        flags.append("low visible short-term risk flags")
 
-    return _clamp(risk, 0.0, 1.0), flags
+    return _clamp(max(risk, MIN_SHORT_TERM_RISK), 0.0, 1.0), flags
+
+
+def _risk_level(risk_score: float) -> str:
+    if risk_score < 0.20:
+        return "low"
+    if risk_score < 0.45:
+        return "medium"
+    return "high"
 
 
 def _setup_type(row: StockMetrics, risk_score: float) -> str:
@@ -337,6 +438,16 @@ def _setup_type(row: StockMetrics, risk_score: float) -> str:
         return "earnings risk"
     if risk_score >= 0.45:
         return "overextended"
+    if (
+        row.sma_5_20_ratio is not None
+        and row.sma_5_20_ratio > 0
+        and row.close_vs_sma_20 is not None
+        and row.close_vs_sma_20 > 0
+        and row.up_day_ratio_5d is not None
+        and row.up_day_ratio_5d >= 0.6
+        and risk_score < 0.35
+    ):
+        return "trend confirmation"
     if (
         row.return_5d is not None
         and row.return_5d > 0.02
@@ -364,6 +475,8 @@ def _short_term_prediction(
     reason_codes: list[str] = []
     if row.return_5d is not None and row.return_5d > 0.02:
         reason_codes.append("MOMENTUM_5D_POSITIVE")
+    if row.return_10d is not None and row.return_10d > 0.03:
+        reason_codes.append("MOMENTUM_10D_POSITIVE")
     if row.return_1d is not None and row.return_1d > 0:
         reason_codes.append("LATEST_SESSION_POSITIVE")
     if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
@@ -374,8 +487,18 @@ def _short_term_prediction(
         reason_codes.append("VOLUME_5D_ABOVE_AVERAGE")
     if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
         reason_codes.append("VOLUME_20D_ABOVE_AVERAGE")
+    if row.volume_trend_5d_20d is not None and row.volume_trend_5d_20d > 1.10:
+        reason_codes.append("VOLUME_TREND_EXPANDING")
     if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
         reason_codes.append("NEAR_5D_HIGH")
+    if row.distance_from_20d_high is not None and row.distance_from_20d_high > -0.03:
+        reason_codes.append("NEAR_20D_HIGH")
+    if row.sma_5_20_ratio is not None and row.sma_5_20_ratio > 0:
+        reason_codes.append("SMA_5_ABOVE_SMA_20")
+    if row.close_vs_sma_20 is not None and row.close_vs_sma_20 > 0:
+        reason_codes.append("PRICE_ABOVE_SMA_20")
+    if row.up_day_ratio_5d is not None and row.up_day_ratio_5d >= 0.60:
+        reason_codes.append("UP_DAY_RATIO_5D_SUPPORTIVE")
     if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
         reason_codes.append("RSI_CONSTRUCTIVE")
 
