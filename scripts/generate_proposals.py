@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -16,8 +17,36 @@ if str(ROOT) not in sys.path:
 from src.agent.short_term_proposals import generate_short_term_proposals  # noqa: E402
 
 
-def run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+def universe_label(universes: list[str]) -> str:
+    selected = set(universes)
+    if selected == {"sp500", "finland"}:
+        return "all"
+    if selected == {"sp500"}:
+        return "us"
+    if selected == {"finland"}:
+        return "finland"
+    if selected:
+        return "custom-" + "-".join(sorted(selected))
+    return "manual"
+
+
+def universes_from_input(input_path: Path) -> list[str]:
+    try:
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    universes = payload.get("universes")
+    if isinstance(universes, list):
+        return [str(universe) for universe in universes]
+    universe = payload.get("universe")
+    if isinstance(universe, str):
+        return [part.strip() for part in universe.split(",") if part.strip()]
+    return []
+
+
+def run_id(universes: list[str]) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S_utc")
+    return f"{timestamp}_{universe_label(universes)}"
 
 
 def resolve_run_paths(
@@ -29,7 +58,7 @@ def resolve_run_paths(
     output_csv: Path | None,
 ) -> tuple[Path, Path, Path, Path]:
     if run_dir is None:
-        run_dir = ROOT / "outputs" / "runs" / run_id()
+        run_dir = ROOT / "outputs" / "runs" / run_id(universes_from_input(input_path))
     run_dir.mkdir(parents=True, exist_ok=True)
 
     run_input = run_dir / "screen_results.json"

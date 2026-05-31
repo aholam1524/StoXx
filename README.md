@@ -113,7 +113,7 @@ python scripts\run_short_term_agent.py --limit 80 --top 10 --proposal-top 10
 Each run creates a timestamped history folder:
 
 ```text
-outputs/runs/YYYYMMDD_HHMMSS/
+outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/
 ├── screen_results.json
 ├── proposals.md
 ├── proposals.json
@@ -121,6 +121,8 @@ outputs/runs/YYYYMMDD_HHMMSS/
 ├── backtest_result.json
 └── calibration_suggestions.json
 ```
+
+The suffix shows the screened universe: `_all`, `_us`, or `_finland`.
 
 The newest run is also copied to:
 
@@ -173,14 +175,14 @@ python scripts\evaluate_runs.py
 Evaluate one specific run:
 
 ```powershell
-python scripts\evaluate_runs.py --run-dir outputs\runs\YYYYMMDD_HHMMSS
+python scripts\evaluate_runs.py --run-dir outputs\runs\YYYY-MM-DD_HH-MM-SS_utc_all
 ```
 
 This writes:
 
 ```text
-outputs/runs/YYYYMMDD_HHMMSS/backtest_result.json
-outputs/runs/YYYYMMDD_HHMMSS/calibration_suggestions.json
+outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/backtest_result.json
+outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/calibration_suggestions.json
 ```
 
 Use `calibration_suggestions.json` to decide which short-term scoring weights or risk penalties should be increased or reduced after enough completed runs exist.
