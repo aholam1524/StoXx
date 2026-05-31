@@ -248,40 +248,36 @@ def _factor_weights(scoring: dict[str, Any]) -> dict[str, float]:
 
 FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
     "trend": {
-        "sma_5_20_ratio": 0.30,
+        "sma_5_20_ratio": 0.35,
         "close_vs_sma_20": 0.25,
-        "return_20d": 0.20,
         "up_day_ratio_10d": 0.15,
-        "close_location_20d": 0.10,
-        "market_regime_score": 0.05,
+        "close_location_20d": 0.15,
+        "market_regime_score": 0.10,
     },
     "momentum": {
+        "momentum_acceleration_5d_10d": 0.35,
         "return_1d": 0.15,
-        "return_5d": 0.30,
-        "return_10d": 0.30,
-        "return_20d": 0.25,
+        "close_location_5d": 0.20,
+        "rs_momentum_5d_20d": 0.15,
+        "price_volume_efficiency_5d": 0.15,
     },
     "relative_strength": {
-        "rel_strength_spy_1d": 0.03,
-        "rel_strength_qqq_1d": 0.02,
-        "rel_strength_spy_5d": 0.20,
-        "rel_strength_qqq_5d": 0.15,
-        "rel_strength_spy_10d": 0.25,
+        "rs_momentum_5d_20d": 0.25,
+        "rel_strength_spy_10d": 0.20,
         "rel_strength_qqq_10d": 0.15,
-        "rel_strength_spy_20d": 0.15,
-        "rel_strength_qqq_20d": 0.10,
-        "sector_relative_strength_5d": 0.08,
-        "sector_relative_strength_10d": 0.12,
+        "sector_relative_strength_5d": 0.15,
+        "sector_relative_strength_10d": 0.15,
         "sector_relative_strength_20d": 0.10,
     },
     "participation": {
-        "volume_ratio_5d": 0.20,
-        "volume_ratio_20d": 0.15,
-        "volume_trend_5d_20d": 0.15,
+        "volume_acceleration_5d_20d": 0.15,
+        "volume_ratio_5d": 0.15,
+        "volume_trend_5d_20d": 0.10,
         "volume_persistence_5d": 0.15,
         "volume_persistence_10d": 0.15,
         "volume_z_score_20d": 0.10,
-        "up_volume_ratio_10d": 0.05,
+        "up_volume_ratio_10d": 0.10,
+        "price_volume_efficiency_5d": 0.10,
         "dollar_volume": 0.05,
     },
     "extension": {
@@ -291,6 +287,7 @@ FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
         "distance_from_20d_low": 0.15,
         "abs_gap_1d": 0.10,
         "failed_gap_or_fade": 0.05,
+        "distribution_pressure": 0.05,
     },
 }
 
@@ -340,6 +337,10 @@ INVERTED_COMPONENTS = {
     "distance_from_20d_low",
     "abs_gap_1d",
     "failed_gap_or_fade",
+    "effort_vs_result_5d",
+    "distribution_day_count_10d",
+    "distribution_pressure",
+    "rs_decoupling",
 }
 
 
@@ -365,8 +366,8 @@ def _component_raw_value(row: StockMetrics, metric: str) -> float | None:
         return row.return_5d / row.atr_14_pct
     if metric == "abs_gap_1d":
         return abs(row.gap_1d) if row.gap_1d is not None else None
-    if metric == "failed_gap_or_fade":
-        return 1.0 if row.failed_gap_or_fade else 0.0
+    if metric in {"failed_gap_or_fade", "distribution_pressure", "rs_decoupling"}:
+        return 1.0 if getattr(row, metric, None) else 0.0
     value = getattr(row, metric, None)
     return float(value) if isinstance(value, int | float) else None
 
@@ -486,15 +487,15 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
     components = details["components"]
     if factor == "trend":
         return (
-            f"Trend {score:.2f}: 20D return {_fmt_pct(row.return_20d)} "
-            f"(pct {_fmt_num((_top_component(components, 'return_20d') or {}).get('percentile'))}), "
-            f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
+            f"Trend {score:.2f}: SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, "
+            f"close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
             f"20D close location {_fmt_pct(row.close_location_20d)}, market regime {row.market_regime_label or 'n/a'}."
         )
     if factor == "momentum":
         return (
-            f"Momentum {score:.2f}: 1D {_fmt_pct(row.return_1d)}, 5D {_fmt_pct(row.return_5d)}, "
-            f"10D {_fmt_pct(row.return_10d)}, 20D {_fmt_pct(row.return_20d)}."
+            f"Momentum {score:.2f}: acceleration {_fmt_pct(row.momentum_acceleration_5d_10d)}, "
+            f"1D {_fmt_pct(row.return_1d)}, 5D close location {_fmt_pct(row.close_location_5d)}, "
+            f"price/volume efficiency {_fmt_pct(row.price_volume_efficiency_5d)}."
         )
     if factor == "relative_strength":
         windows = [
@@ -514,8 +515,7 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
         return (
             f"Relative strength {score:.2f}: strongest window {label} {_fmt_pct(value)} "
             f"(pct {_fmt_num(percentile)}); 5D SPY {_fmt_pct(row.rel_strength_spy_5d)}, "
-            f"10D SPY {_fmt_pct(row.rel_strength_spy_10d)}, 20D SPY {_fmt_pct(row.rel_strength_spy_20d)}, "
-            f"10D sector {_fmt_pct(row.sector_relative_strength_10d)}."
+            f"RS momentum {_fmt_pct(row.rs_momentum_5d_20d)}, 10D sector {_fmt_pct(row.sector_relative_strength_10d)}."
         )
     if factor == "participation":
         persistence = _top_component(components, "volume_persistence_10d") or {}
@@ -524,13 +524,16 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
             f"5D persistence {_fmt_pct(row.volume_persistence_5d)}, "
             f"10D persistence {_fmt_pct(row.volume_persistence_10d)} "
             f"(pct {_fmt_num(persistence.get('percentile'))}), "
+            f"volume acceleration {_fmt_num(row.volume_acceleration_5d_20d)}, "
             f"up/down volume {_fmt_num(row.up_volume_ratio_10d)}x, "
+            f"efficiency {_fmt_pct(row.price_volume_efficiency_5d)}, "
             f"liquidity tier {row.liquidity_tier or 'n/a'} ({_fmt_money(row.dollar_volume)})."
         )
     return (
         f"Extension control {score:.2f}: RSI {_fmt_num(row.rsi_14)}, "
         f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, "
-        f"20D low distance {_fmt_pct(row.distance_from_20d_low)}, fade flag {row.failed_gap_or_fade}."
+        f"20D low distance {_fmt_pct(row.distance_from_20d_low)}, "
+        f"fade/distribution flags {row.failed_gap_or_fade}/{row.distribution_pressure}."
     )
 
 
@@ -572,6 +575,12 @@ def _factor_reasons(factor_scores: dict[str, float], risk_score: float, row: Sto
         reason_codes.append("RSI_CONSTRUCTIVE")
     elif row.rsi_14 is not None and row.rsi_14 > 70:
         reason_codes.append("RSI_STRETCHED")
+    if row.distribution_pressure:
+        reason_codes.append("DISTRIBUTION_PRESSURE")
+    if row.rs_decoupling:
+        reason_codes.append("RS_DECOUPLING")
+    if row.failed_gap_or_fade:
+        reason_codes.append("FAILED_GAP_OR_FADE")
 
     if not reason_codes:
         reason_codes.append("FACTOR_MODEL_MIXED")
@@ -618,6 +627,7 @@ def score_short_term_candidates(
         risk_score, risk_flags, risk_details = _short_term_risk_model(row, scoring)
         risk_level = _risk_level(risk_score, scoring)
         risk_details["level"] = risk_level
+        lifecycle_details = _lifecycle_details(row, factor_scores, risk_score)
         confidence_score, expected_direction = _short_term_prediction(
             row,
             opportunity_score,
@@ -626,7 +636,7 @@ def score_short_term_candidates(
         reason_codes = _factor_reasons(factor_scores, risk_score, row)
         score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
         setup_type = _setup_type(row, risk_score)
-        setup_details = _setup_details(row, factor_scores, risk_score)
+        setup_details = _setup_details(row, factor_scores, risk_score, lifecycle_details)
 
         results.append(
             ScoredCandidate(
@@ -683,13 +693,21 @@ def score_short_term_candidates(
                 volume_persistence_10d=row.volume_persistence_10d,
                 volume_z_score_20d=row.volume_z_score_20d,
                 up_volume_ratio_10d=row.up_volume_ratio_10d,
+                volume_acceleration_5d_20d=row.volume_acceleration_5d_20d,
+                price_volume_efficiency_5d=row.price_volume_efficiency_5d,
+                effort_vs_result_5d=row.effort_vs_result_5d,
+                distribution_day_count_10d=row.distribution_day_count_10d,
                 liquidity_tier=row.liquidity_tier,
                 close_location_1d=row.close_location_1d,
                 close_location_5d=row.close_location_5d,
                 close_location_20d=row.close_location_20d,
                 market_regime_score=row.market_regime_score,
                 market_regime_label=row.market_regime_label,
+                momentum_acceleration_5d_10d=row.momentum_acceleration_5d_10d,
+                rs_momentum_5d_20d=row.rs_momentum_5d_20d,
                 failed_gap_or_fade=row.failed_gap_or_fade,
+                rs_decoupling=row.rs_decoupling,
+                distribution_pressure=row.distribution_pressure,
                 expected_direction=expected_direction,
                 expected_window="1d-5d",
                 confidence_score=round(confidence_score, 4),
@@ -699,6 +717,7 @@ def score_short_term_candidates(
                 factor_details=factor_details,
                 risk_details=risk_details,
                 setup_details=setup_details,
+                lifecycle_details=lifecycle_details,
             )
         )
 
@@ -877,7 +896,8 @@ def _short_term_risk_model(
         _risk_metric(metric="atr_14_pct", raw=row.atr_14_pct, low=_risk_range(thresholds, "volatility", "atr_14_pct")[0], high=_risk_range(thresholds, "volatility", "atr_14_pct")[1]),
         _risk_metric(metric="abs_gap_1d", raw=abs(row.gap_1d) if row.gap_1d is not None else None, low=_risk_range(thresholds, "volatility", "abs_gap_1d")[0], high=_risk_range(thresholds, "volatility", "abs_gap_1d")[1]),
         _risk_metric(metric="abs_return_1d", raw=abs(row.return_1d) if row.return_1d is not None else None, low=_risk_range(thresholds, "volatility", "abs_return_1d")[0], high=_risk_range(thresholds, "volatility", "abs_return_1d")[1]),
-        _risk_metric(metric="failed_gap_or_fade", raw=1.0 if row.failed_gap_or_fade else 0.0, direction="event", score=1.0 if row.failed_gap_or_fade else 0.0),
+        _risk_metric(metric="failed_gap_or_fade", raw=1.0 if row.failed_gap_or_fade else None, direction="event", score=1.0 if row.failed_gap_or_fade else None),
+        _risk_metric(metric="distribution_pressure", raw=1.0 if row.distribution_pressure else None, direction="event", score=1.0 if row.distribution_pressure else None),
     ]
     liquidity_metrics = [
         _risk_metric(metric="liquidity_tier", raw=None, direction="tier", score=_liquidity_tier_risk(row.liquidity_tier)),
@@ -889,6 +909,7 @@ def _short_term_risk_model(
         _risk_metric(metric="close_vs_sma_20", raw=row.close_vs_sma_20, low=_risk_range(thresholds, "trend_failure", "close_vs_sma_20")[0], high=_risk_range(thresholds, "trend_failure", "close_vs_sma_20")[1], direction="negative_is_riskier"),
         _risk_metric(metric="sma_5_20_ratio", raw=row.sma_5_20_ratio, low=_risk_range(thresholds, "trend_failure", "sma_5_20_ratio")[0], high=_risk_range(thresholds, "trend_failure", "sma_5_20_ratio")[1], direction="negative_is_riskier"),
         _risk_metric(metric="up_day_ratio_10d", raw=row.up_day_ratio_10d, low=_risk_range(thresholds, "trend_failure", "up_day_ratio_10d")[0], high=_risk_range(thresholds, "trend_failure", "up_day_ratio_10d")[1], direction="lower_is_riskier"),
+        _risk_metric(metric="rs_decoupling", raw=1.0 if row.rs_decoupling else None, direction="event", score=1.0 if row.rs_decoupling else None),
     ]
     event_metrics = [
         _risk_metric(metric="upcoming_earnings_days", raw=row.upcoming_earnings_days, direction="nearer_is_riskier", score=_event_risk(row.upcoming_earnings_days)),
@@ -908,7 +929,7 @@ def _short_term_risk_model(
             "volatility risk",
             weights["volatility"],
             volatility_metrics,
-            f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, 1D return {_fmt_pct(row.return_1d)}, fade flag {row.failed_gap_or_fade}",
+            f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, 1D return {_fmt_pct(row.return_1d)}, fade/distribution {row.failed_gap_or_fade}/{row.distribution_pressure}",
         ),
         "liquidity": _bucket_detail(
             "liquidity/participation risk",
@@ -925,7 +946,8 @@ def _short_term_risk_model(
             trend_failure_metrics,
             (
                 f"close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
-                f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, up-day ratio 10D {_fmt_pct(row.up_day_ratio_10d)}"
+                f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, up-day ratio 10D {_fmt_pct(row.up_day_ratio_10d)}, "
+                f"RS decoupling {row.rs_decoupling}"
             ),
         ),
         "event": _bucket_detail(
@@ -1018,10 +1040,55 @@ def _setup_type(row: StockMetrics, risk_score: float) -> str:
     return "pullback risk"
 
 
+def _lifecycle_details(
+    row: StockMetrics,
+    factor_scores: dict[str, float],
+    risk_score: float,
+) -> dict[str, Any]:
+    trend = factor_scores.get("trend", 0.0)
+    momentum = factor_scores.get("momentum", 0.0)
+    participation = factor_scores.get("participation", 0.0)
+    extension = factor_scores.get("extension", 0.0)
+    acceleration = _scale(row.momentum_acceleration_5d_10d, -0.03, 0.05) if row.momentum_acceleration_5d_10d is not None else 0.5
+    volume_acceleration = _scale(row.volume_acceleration_5d_20d, -0.5, 1.5) if row.volume_acceleration_5d_20d is not None else 0.5
+    efficiency = _scale(row.price_volume_efficiency_5d, -0.02, 0.04) if row.price_volume_efficiency_5d is not None else 0.5
+    poor_efficiency = 1 - efficiency
+    distribution = 1.0 if row.distribution_pressure else (_scale(row.distribution_day_count_10d, 0, 4) if row.distribution_day_count_10d is not None else 0.0)
+    fade = 1.0 if row.failed_gap_or_fade else 0.0
+    rs_decoupling = 1.0 if row.rs_decoupling else 0.0
+
+    phases = {
+        "ignition": _clamp(0.30 * acceleration + 0.30 * volume_acceleration + 0.20 * participation + 0.20 * trend, 0.0, 1.0),
+        "expansion": _clamp(0.30 * trend + 0.25 * momentum + 0.20 * participation + 0.15 * extension + 0.10 * (1 - risk_score), 0.0, 1.0),
+        "euphoria": _clamp(0.35 * (1 - extension) + 0.25 * momentum + 0.20 * volume_acceleration + 0.20 * risk_score, 0.0, 1.0),
+        "exhaustion": _clamp(0.30 * poor_efficiency + 0.25 * distribution + 0.20 * fade + 0.15 * rs_decoupling + 0.10 * (1 - extension), 0.0, 1.0),
+        "reversal": _clamp(0.30 * risk_score + 0.25 * distribution + 0.20 * rs_decoupling + 0.15 * fade + 0.10 * (1 - trend), 0.0, 1.0),
+    }
+    regime_probabilities = {
+        "continuation": round(_clamp(0.45 * phases["expansion"] + 0.30 * phases["ignition"] + 0.15 * participation + 0.10 * (1 - risk_score), 0.0, 1.0), 4),
+        "mean_reversion": round(_clamp(0.45 * phases["exhaustion"] + 0.30 * phases["euphoria"] + 0.25 * phases["reversal"], 0.0, 1.0), 4),
+        "volatility_expansion": round(_clamp(0.35 * risk_score + 0.25 * (row.atr_14_pct or 0.0) / 0.08 + 0.20 * volume_acceleration + 0.20 * phases["euphoria"], 0.0, 1.0), 4),
+    }
+    best_phase = max(phases.items(), key=lambda item: item[1])[0]
+    return {
+        "phase": best_phase,
+        "phase_scores": {name: round(score, 4) for name, score in phases.items()},
+        "regime_probabilities": regime_probabilities,
+        "signals": {
+            "poor_price_volume_efficiency": round(poor_efficiency, 4),
+            "distribution_pressure": row.distribution_pressure,
+            "failed_gap_or_fade": row.failed_gap_or_fade,
+            "rs_decoupling": row.rs_decoupling,
+        },
+        "note": "Heuristic regime probabilities; not yet calibrated to historical forward outcomes.",
+    }
+
+
 def _setup_details(
     row: StockMetrics,
     factor_scores: dict[str, float],
     risk_score: float,
+    lifecycle_details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trend = factor_scores.get("trend", 0.0)
     momentum = factor_scores.get("momentum", 0.0)
@@ -1056,6 +1123,8 @@ def _setup_details(
         "best_setup_score": best_setup,
         "best_score": best_payload["score"],
         "setups": diagnostics,
+        "lifecycle_phase": (lifecycle_details or {}).get("phase"),
+        "regime_probabilities": (lifecycle_details or {}).get("regime_probabilities", {}),
     }
 
 

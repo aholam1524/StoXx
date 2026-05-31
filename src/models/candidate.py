@@ -54,13 +54,21 @@ class StockMetrics:
     volume_persistence_10d: float | None = None
     volume_z_score_20d: float | None = None
     up_volume_ratio_10d: float | None = None
+    volume_acceleration_5d_20d: float | None = None
+    price_volume_efficiency_5d: float | None = None
+    effort_vs_result_5d: float | None = None
+    distribution_day_count_10d: float | None = None
     liquidity_tier: str | None = None
     close_location_1d: float | None = None
     close_location_5d: float | None = None
     close_location_20d: float | None = None
     market_regime_score: float | None = None
     market_regime_label: str | None = None
+    momentum_acceleration_5d_10d: float | None = None
+    rs_momentum_5d_20d: float | None = None
     failed_gap_or_fade: bool | None = None
+    rs_decoupling: bool | None = None
+    distribution_pressure: bool | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
@@ -70,6 +78,7 @@ class StockMetrics:
     factor_details: dict[str, Any] | None = None
     risk_details: dict[str, Any] | None = None
     setup_details: dict[str, Any] | None = None
+    lifecycle_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -130,13 +139,21 @@ class ScoredCandidate:
     volume_persistence_10d: float | None = None
     volume_z_score_20d: float | None = None
     up_volume_ratio_10d: float | None = None
+    volume_acceleration_5d_20d: float | None = None
+    price_volume_efficiency_5d: float | None = None
+    effort_vs_result_5d: float | None = None
+    distribution_day_count_10d: float | None = None
     liquidity_tier: str | None = None
     close_location_1d: float | None = None
     close_location_5d: float | None = None
     close_location_20d: float | None = None
     market_regime_score: float | None = None
     market_regime_label: str | None = None
+    momentum_acceleration_5d_10d: float | None = None
+    rs_momentum_5d_20d: float | None = None
     failed_gap_or_fade: bool | None = None
+    rs_decoupling: bool | None = None
+    distribution_pressure: bool | None = None
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
@@ -146,6 +163,7 @@ class ScoredCandidate:
     factor_details: dict[str, Any] | None = None
     risk_details: dict[str, Any] | None = None
     setup_details: dict[str, Any] | None = None
+    lifecycle_details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
