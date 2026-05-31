@@ -17,6 +17,8 @@ class StockMetrics:
     debt_to_equity: float | None
     free_cashflow: float | None
     current_price: float | None
+    market: str = "US / S&P 500"
+    exchange: str = "NYSE/Nasdaq"
     upcoming_earnings_days: float | None = None
     return_1d: float | None = None
     return_5d: float | None = None
@@ -55,6 +57,8 @@ class ScoredCandidate:
     symbol: str
     name: str
     sector: str
+    market: str
+    exchange: str
     score: float
     trailing_pe: float | None
     price_to_book: float | None
@@ -65,6 +69,7 @@ class ScoredCandidate:
     reasons: list[str]
     opportunity_score: float | None = None
     risk_score: float | None = None
+    risk_level: str | None = None
     setup_type: str | None = None
     risk_flags: list[str] | None = None
     upcoming_earnings_days: float | None = None

@@ -44,6 +44,12 @@ def main() -> int:
         help="Optional symbol limit for faster tests.",
     )
     parser.add_argument(
+        "--universe",
+        action="append",
+        choices=("sp500", "finland"),
+        help="Universe to load. Repeat for multiple. Overrides config universes.",
+    )
+    parser.add_argument(
         "--use-ollama",
         action="store_true",
         help="Try local Ollama wording; unsafe outputs fall back to fact-only notes.",
@@ -64,6 +70,9 @@ def main() -> int:
     ]
     if args.limit is not None:
         screen_cmd.extend(["--limit", str(args.limit)])
+    if args.universe:
+        for universe in args.universe:
+            screen_cmd.extend(["--universe", universe])
     run(screen_cmd)
 
     proposal_cmd = [

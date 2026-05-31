@@ -1,8 +1,13 @@
 universe: sp500
+universes:
+  - sp500
+  - finland
 top_n: 10
 
 # Skip tickers below this market cap (USD)
-min_market_cap: 1_000_000_000
+# Lower values include smaller companies, which can be less liquid and riskier.
+# Finnish names use Yahoo's local market-cap currency, so treat this as approximate.
+min_market_cap: 100_000_000
 
 # Keep the short-term watchlist away from mega-cap names.
 # Raise/lower this if you want larger/smaller companies included.

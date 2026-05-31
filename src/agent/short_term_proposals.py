@@ -43,6 +43,7 @@ def _market_cap(value: float | None) -> str:
 def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
+        f"- Market: {candidate.get('market') or 'n/a'}; exchange: {candidate.get('exchange') or 'n/a'}.",
         f"- Price: {_num(candidate.get('current_price'))}; market cap: {_market_cap(candidate.get('market_cap'))}.",
         f"- Returns: 1D {_pct(candidate.get('return_1d'))}, 5D {_pct(candidate.get('return_5d'))}, 10D {_pct(candidate.get('return_10d'))}, 20D {_pct(candidate.get('return_20d'))}.",
         f"- Relative strength: SPY 1D {_pct(candidate.get('rel_strength_spy_1d'))}, SPY 5D {_pct(candidate.get('rel_strength_spy_5d'))}, QQQ 1D {_pct(candidate.get('rel_strength_qqq_1d'))}, QQQ 5D {_pct(candidate.get('rel_strength_qqq_5d'))}.",
@@ -50,7 +51,7 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
         f"- Range/volatility: 5D high distance {_pct(candidate.get('distance_from_5d_high'))}, 5D low distance {_pct(candidate.get('distance_from_5d_low'))}, 20D high distance {_pct(candidate.get('distance_from_20d_high'))}, 20D low distance {_pct(candidate.get('distance_from_20d_low'))}, ATR14 {_pct(candidate.get('atr_14_pct'))}, opening gap {_pct(candidate.get('gap_1d'))}.",
         f"- Trend quality: SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}, close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}, up-day ratio 5D {_pct(candidate.get('up_day_ratio_5d'))}, up-day ratio 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
         f"- RSI14: {_num(candidate.get('rsi_14'))}; upcoming earnings days: {_num(candidate.get('upcoming_earnings_days'))}.",
-        f"- Scores: rank score {_num(candidate.get('score'))}, opportunity {_num(candidate.get('opportunity_score'))}, risk {_num(candidate.get('risk_score'))}, confidence {_num(candidate.get('confidence_score'))}.",
+        f"- Scores: rank score {_num(candidate.get('score'))}, opportunity {_num(candidate.get('opportunity_score'))}, risk {_num(candidate.get('risk_score'))} ({candidate.get('risk_level') or 'n/a'}), confidence {_num(candidate.get('confidence_score'))}.",
         f"- Prediction: {candidate.get('expected_direction') or 'n/a'} over {candidate.get('expected_window') or 'n/a'}; setup: {candidate.get('setup_type') or 'n/a'}.",
     ]
 
@@ -166,14 +167,23 @@ def _proposal_highlights(candidate: dict[str, Any]) -> list[str]:
 def _risk_observations(candidate: dict[str, Any]) -> list[str]:
     risks: list[str] = []
     risk_score = candidate.get("risk_score")
+    risk_level = candidate.get("risk_level")
     risk_flags = candidate.get("risk_flags") or []
 
     for flag in risk_flags:
-        if flag != "no major short-term risk flags":
+        if flag != "low visible short-term risk flags":
             risks.append(flag)
 
     if risk_score is not None:
-        risks.append(f"Risk score is {_num(risk_score)} on a 0 to 1 scale.")
+        risks.append(
+            f"Risk score is {_num(risk_score)} ({risk_level or 'n/a'}) on a 0 to 1 scale."
+        )
+    market_cap = candidate.get("market_cap")
+    dollar_volume = candidate.get("dollar_volume")
+    if market_cap is not None and market_cap < 1_000_000_000:
+        risks.append("smaller market-cap name; liquidity and spreads may matter more")
+    if dollar_volume is not None and dollar_volume < 25_000_000:
+        risks.append("lower dollar volume; entries and exits may be harder")
     deduped = list(dict.fromkeys(risks))
     if not deduped:
         risks.append("Main invalidation is loss of positive momentum or fading relative volume.")
@@ -312,6 +322,8 @@ Candidate facts:
 - Rank: {rank}
 - Symbol: {candidate.get("symbol")}
 - Name: {candidate.get("name")}
+- Market: {candidate.get("market")}
+- Exchange: {candidate.get("exchange")}
 - Screener score: {candidate.get("score")}
 - Current price: {_num(candidate.get("current_price"))}
 - Market cap: {_market_cap(candidate.get("market_cap"))}
@@ -339,6 +351,7 @@ Candidate facts:
 - Setup type: {candidate.get("setup_type")}
 - Opportunity score: {_num(candidate.get("opportunity_score"))}
 - Risk score: {_num(candidate.get("risk_score"))}
+- Risk level: {candidate.get("risk_level")}
 - Confidence score: {_num(candidate.get("confidence_score"))}
 - Expected direction: {candidate.get("expected_direction")}
 - Expected window: {candidate.get("expected_window")}
@@ -460,9 +473,12 @@ SUMMARY_COLUMNS = [
     "rank",
     "symbol",
     "name",
+    "market",
+    "exchange",
     "score",
     "opportunity_score",
     "risk_score",
+    "risk_level",
     "confidence_score",
     "expected_direction",
     "expected_window",

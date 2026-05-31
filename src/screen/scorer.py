@@ -7,6 +7,8 @@ from typing import Any
 
 from src.models.candidate import ScoredCandidate, StockMetrics
 
+MIN_SHORT_TERM_RISK = 0.10
+
 
 def _median(values: list[float]) -> float | None:
     if not values:
@@ -151,6 +153,8 @@ def score_candidates(
                 symbol=row.symbol,
                 name=row.name,
                 sector=row.sector,
+                market=row.market,
+                exchange=row.exchange,
                 score=round(score, 4),
                 trailing_pe=row.trailing_pe,
                 price_to_book=row.price_to_book,
@@ -265,6 +269,7 @@ def score_short_term_candidates(
             + w_liquidity * liquidity
         ) / weight_sum
         risk_score, risk_flags = _short_term_risk(row)
+        risk_level = _risk_level(risk_score)
         confidence_score, expected_direction, reason_codes = _short_term_prediction(
             row,
             opportunity_score,
@@ -310,6 +315,8 @@ def score_short_term_candidates(
                 symbol=row.symbol,
                 name=row.name,
                 sector=row.sector,
+                market=row.market,
+                exchange=row.exchange,
                 score=round(score, 4),
                 trailing_pe=row.trailing_pe,
                 price_to_book=row.price_to_book,
@@ -320,6 +327,7 @@ def score_short_term_candidates(
                 reasons=reasons,
                 opportunity_score=round(opportunity_score, 4),
                 risk_score=round(risk_score, 4),
+                risk_level=risk_level,
                 setup_type=setup_type,
                 risk_flags=risk_flags,
                 upcoming_earnings_days=row.upcoming_earnings_days,
@@ -409,9 +417,17 @@ def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
         risk += 0.25
 
     if not flags:
-        flags.append("no major short-term risk flags")
+        flags.append("low visible short-term risk flags")
 
-    return _clamp(risk, 0.0, 1.0), flags
+    return _clamp(max(risk, MIN_SHORT_TERM_RISK), 0.0, 1.0), flags
+
+
+def _risk_level(risk_score: float) -> str:
+    if risk_score < 0.20:
+        return "low"
+    if risk_score < 0.45:
+        return "medium"
+    return "high"
 
 
 def _setup_type(row: StockMetrics, risk_score: float) -> str:
