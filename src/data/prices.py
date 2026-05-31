@@ -64,11 +64,30 @@ def _return(closes: pd.Series, periods: int) -> float | None:
     return latest / previous - 1
 
 
+def _close_location(close: float | None, low: float | None, high: float | None) -> float | None:
+    if close is None or low is None or high is None or high <= low:
+        return None
+    return _safe_float((close - low) / (high - low))
+
+
 def _up_day_ratio(closes: pd.Series, window: int) -> float | None:
     changes = closes.diff().dropna().tail(window)
     if len(changes) < window:
         return None
     return _safe_float((changes > 0).sum() / window)
+
+
+def _up_volume_ratio(closes: pd.Series, volumes: pd.Series, window: int = 10) -> float | None:
+    if len(closes) < window + 1 or len(volumes) < window + 1:
+        return None
+    recent_closes = closes.tail(window + 1)
+    recent_volumes = volumes.reindex(recent_closes.index).tail(window)
+    changes = recent_closes.diff().dropna().tail(window)
+    up_volume = recent_volumes[changes > 0].sum()
+    down_volume = recent_volumes[changes <= 0].sum()
+    if down_volume <= 0:
+        return _safe_float(5.0 if up_volume > 0 else None)
+    return _safe_float(up_volume / down_volume)
 
 
 def _atr_pct(frame: pd.DataFrame, window: int = 14) -> float | None:
@@ -99,6 +118,46 @@ def _symbol_frame(history: pd.DataFrame, symbol: str) -> pd.DataFrame:
             return pd.DataFrame()
         return history.xs(symbol, axis=1, level=1).dropna(how="all")
     return history.dropna(how="all")
+
+
+def _scale(value: float | None, low: float, high: float) -> float | None:
+    if value is None or high <= low:
+        return None
+    return max(0.0, min(1.0, (value - low) / (high - low)))
+
+
+def _market_regime_score(benchmark_returns: dict[str, dict[str, float | None]], history: pd.DataFrame) -> tuple[float | None, str | None]:
+    scores: list[float] = []
+    for benchmark in BENCHMARKS:
+        returns = benchmark_returns.get(benchmark, {})
+        score_5d = _scale(returns.get("5d"), -0.02, 0.03)
+        score_20d = _scale(returns.get("20d"), -0.05, 0.06)
+        if score_5d is not None:
+            scores.append(score_5d)
+        if score_20d is not None:
+            scores.append(score_20d)
+
+        frame = _symbol_frame(history, benchmark)
+        if not frame.empty and "Close" in frame and len(frame) >= 20:
+            closes = frame["Close"].dropna().astype(float)
+            latest = _safe_float(closes.iloc[-1])
+            sma_20 = _safe_float(closes.tail(20).mean())
+            if latest is not None and sma_20 is not None and sma_20 > 0:
+                close_vs_sma = latest / sma_20 - 1
+                sma_score = _scale(close_vs_sma, -0.03, 0.04)
+                if sma_score is not None:
+                    scores.append(sma_score)
+
+    if not scores:
+        return None, None
+    score = _safe_float(sum(scores) / len(scores))
+    if score is None:
+        return None, None
+    if score >= 0.65:
+        return score, "supportive"
+    if score >= 0.40:
+        return score, "mixed"
+    return score, "weak"
 
 
 def enrich_short_term_metrics(
@@ -142,6 +201,8 @@ def enrich_short_term_metrics(
             "20d": _return(closes, 20),
         }
 
+    market_regime_score, market_regime_label = _market_regime_score(benchmark_returns, history)
+
     by_symbol = {row.symbol: row for row in rows}
     for symbol, row in by_symbol.items():
         frame = _symbol_frame(history, symbol)
@@ -157,6 +218,8 @@ def enrich_short_term_metrics(
         latest_close = _safe_float(closes.iloc[-1])
         previous_close = _safe_float(closes.iloc[-2])
         latest_open = _safe_float(frame["Open"].iloc[-1]) if "Open" in frame else None
+        latest_high = _safe_float(frame["High"].iloc[-1]) if "High" in frame else None
+        latest_low = _safe_float(frame["Low"].iloc[-1]) if "Low" in frame else None
         close_5d_ago = _safe_float(closes.iloc[-6])
         close_10d_ago = _safe_float(closes.iloc[-11]) if len(closes) >= 11 else None
         close_20d_ago = _safe_float(closes.iloc[-21]) if len(closes) >= 21 else None
@@ -196,10 +259,12 @@ def enrich_short_term_metrics(
                     row.volume_persistence_5d = _safe_float((recent_5 > avg_volume_20).sum() / 5)
                 if len(recent_10) == 10:
                     row.volume_persistence_10d = _safe_float((recent_10 > avg_volume_20).sum() / 10)
+        row.up_volume_ratio_10d = _up_volume_ratio(closes, volumes, 10)
         if latest_close is not None and latest_volume is not None:
             row.dollar_volume = latest_close * latest_volume
             row.liquidity_tier = _liquidity_tier(row.dollar_volume)
 
+        row.close_location_1d = _close_location(latest_close, latest_low, latest_high)
         last_5 = frame.tail(5)
         high_5d = _safe_float(last_5["High"].max()) if "High" in last_5 else None
         low_5d = _safe_float(last_5["Low"].min()) if "Low" in last_5 else None
@@ -207,6 +272,7 @@ def enrich_short_term_metrics(
             row.distance_from_5d_high = latest_close / high_5d - 1
         if latest_close is not None and low_5d is not None and low_5d > 0:
             row.distance_from_5d_low = latest_close / low_5d - 1
+        row.close_location_5d = _close_location(latest_close, low_5d, high_5d)
 
         last_20 = frame.tail(20)
         high_20d = _safe_float(last_20["High"].max()) if "High" in last_20 else None
@@ -215,6 +281,7 @@ def enrich_short_term_metrics(
             row.distance_from_20d_high = latest_close / high_20d - 1
         if latest_close is not None and low_20d is not None and low_20d > 0:
             row.distance_from_20d_low = latest_close / low_20d - 1
+        row.close_location_20d = _close_location(latest_close, low_20d, high_20d)
 
         if len(closes) >= 20:
             sma_5 = _safe_float(closes.tail(5).mean())
@@ -228,6 +295,22 @@ def enrich_short_term_metrics(
 
         row.rsi_14 = _rsi(closes)
         row.atr_14_pct = _atr_pct(frame)
+        row.market_regime_score = market_regime_score
+        row.market_regime_label = market_regime_label
+        row.failed_gap_or_fade = bool(
+            (
+                row.gap_1d is not None
+                and row.gap_1d >= 0.015
+                and row.close_location_1d is not None
+                and row.close_location_1d <= 0.40
+            )
+            or (
+                row.return_1d is not None
+                and row.return_1d >= 0.025
+                and row.close_location_1d is not None
+                and row.close_location_1d <= 0.35
+            )
+        )
         if row.return_1d is not None:
             spy_1d = benchmark_returns.get("SPY", {}).get("1d")
             qqq_1d = benchmark_returns.get("QQQ", {}).get("1d")
@@ -257,5 +340,30 @@ def enrich_short_term_metrics(
             if qqq_20d is not None:
                 row.rel_strength_qqq_20d = row.return_20d - qqq_20d
         row.current_price = latest_close
+
+    sector_returns: dict[str, dict[str, list[float]]] = {}
+    for row in rows:
+        sector_bucket = sector_returns.setdefault(row.sector, {"5d": [], "10d": [], "20d": []})
+        if row.return_5d is not None:
+            sector_bucket["5d"].append(row.return_5d)
+        if row.return_10d is not None:
+            sector_bucket["10d"].append(row.return_10d)
+        if row.return_20d is not None:
+            sector_bucket["20d"].append(row.return_20d)
+
+    for row in rows:
+        sector_bucket = sector_returns.get(row.sector, {})
+        if row.return_5d is not None and sector_bucket.get("5d"):
+            sector_median = _safe_float(pd.Series(sector_bucket["5d"]).median())
+            if sector_median is not None:
+                row.sector_relative_strength_5d = row.return_5d - sector_median
+        if row.return_10d is not None and sector_bucket.get("10d"):
+            sector_median = _safe_float(pd.Series(sector_bucket["10d"]).median())
+            if sector_median is not None:
+                row.sector_relative_strength_10d = row.return_10d - sector_median
+        if row.return_20d is not None and sector_bucket.get("20d"):
+            sector_median = _safe_float(pd.Series(sector_bucket["20d"]).median())
+            if sector_median is not None:
+                row.sector_relative_strength_20d = row.return_20d - sector_median
 
     return rows

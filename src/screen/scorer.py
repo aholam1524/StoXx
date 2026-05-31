@@ -250,8 +250,10 @@ FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
     "trend": {
         "sma_5_20_ratio": 0.30,
         "close_vs_sma_20": 0.25,
-        "return_20d": 0.25,
-        "up_day_ratio_10d": 0.20,
+        "return_20d": 0.20,
+        "up_day_ratio_10d": 0.15,
+        "close_location_20d": 0.10,
+        "market_regime_score": 0.05,
     },
     "momentum": {
         "return_1d": 0.15,
@@ -268,22 +270,67 @@ FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
         "rel_strength_qqq_10d": 0.15,
         "rel_strength_spy_20d": 0.15,
         "rel_strength_qqq_20d": 0.10,
+        "sector_relative_strength_5d": 0.08,
+        "sector_relative_strength_10d": 0.12,
+        "sector_relative_strength_20d": 0.10,
     },
     "participation": {
         "volume_ratio_5d": 0.20,
-        "volume_ratio_20d": 0.20,
+        "volume_ratio_20d": 0.15,
         "volume_trend_5d_20d": 0.15,
         "volume_persistence_5d": 0.15,
         "volume_persistence_10d": 0.15,
         "volume_z_score_20d": 0.10,
+        "up_volume_ratio_10d": 0.05,
         "dollar_volume": 0.05,
     },
     "extension": {
-        "rsi_control": 0.30,
+        "rsi_control": 0.25,
         "atr_14_pct": 0.25,
         "stretch_vs_atr": 0.20,
         "distance_from_20d_low": 0.15,
         "abs_gap_1d": 0.10,
+        "failed_gap_or_fade": 0.05,
+    },
+}
+
+RISK_WEIGHT_DEFAULTS = {
+    "extension": 0.33,
+    "volatility": 0.20,
+    "liquidity": 0.20,
+    "trend_failure": 0.15,
+    "event": 0.12,
+}
+
+RISK_LEVEL_DEFAULTS = {
+    "low_max": 0.25,
+    "medium_max": 0.50,
+}
+
+RISK_THRESHOLD_DEFAULTS = {
+    "extension": {
+        "rsi_14": (60.0, 80.0),
+        "return_5d": (0.04, 0.16),
+        "return_10d": (0.08, 0.24),
+        "return_20d": (0.10, 0.30),
+        "distance_from_20d_low": (0.08, 0.28),
+        "distance_from_20d_high": (-0.08, 0.02),
+        "stretch_vs_atr": (1.0, 3.5),
+    },
+    "volatility": {
+        "atr_14_pct": (0.02, 0.07),
+        "abs_gap_1d": (0.01, 0.06),
+        "abs_return_1d": (0.02, 0.08),
+    },
+    "liquidity": {
+        "dollar_volume": (5_000_000.0, 100_000_000.0),
+        "volume_ratio_5d": (1.5, 4.0),
+        "volume_persistence_10d": (0.2, 0.8),
+    },
+    "trend_failure": {
+        "close_vs_sma_20": (0.0, 0.08),
+        "sma_5_20_ratio": (0.0, 0.06),
+        "up_day_ratio_10d": (0.3, 0.7),
     },
 }
 
@@ -292,6 +339,7 @@ INVERTED_COMPONENTS = {
     "stretch_vs_atr",
     "distance_from_20d_low",
     "abs_gap_1d",
+    "failed_gap_or_fade",
 }
 
 
@@ -317,6 +365,8 @@ def _component_raw_value(row: StockMetrics, metric: str) -> float | None:
         return row.return_5d / row.atr_14_pct
     if metric == "abs_gap_1d":
         return abs(row.gap_1d) if row.gap_1d is not None else None
+    if metric == "failed_gap_or_fade":
+        return 1.0 if row.failed_gap_or_fade else 0.0
     value = getattr(row, metric, None)
     return float(value) if isinstance(value, int | float) else None
 
@@ -438,7 +488,8 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
         return (
             f"Trend {score:.2f}: 20D return {_fmt_pct(row.return_20d)} "
             f"(pct {_fmt_num((_top_component(components, 'return_20d') or {}).get('percentile'))}), "
-            f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}."
+            f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
+            f"20D close location {_fmt_pct(row.close_location_20d)}, market regime {row.market_regime_label or 'n/a'}."
         )
     if factor == "momentum":
         return (
@@ -463,7 +514,8 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
         return (
             f"Relative strength {score:.2f}: strongest window {label} {_fmt_pct(value)} "
             f"(pct {_fmt_num(percentile)}); 5D SPY {_fmt_pct(row.rel_strength_spy_5d)}, "
-            f"10D SPY {_fmt_pct(row.rel_strength_spy_10d)}, 20D SPY {_fmt_pct(row.rel_strength_spy_20d)}."
+            f"10D SPY {_fmt_pct(row.rel_strength_spy_10d)}, 20D SPY {_fmt_pct(row.rel_strength_spy_20d)}, "
+            f"10D sector {_fmt_pct(row.sector_relative_strength_10d)}."
         )
     if factor == "participation":
         persistence = _top_component(components, "volume_persistence_10d") or {}
@@ -472,12 +524,13 @@ def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> 
             f"5D persistence {_fmt_pct(row.volume_persistence_5d)}, "
             f"10D persistence {_fmt_pct(row.volume_persistence_10d)} "
             f"(pct {_fmt_num(persistence.get('percentile'))}), "
+            f"up/down volume {_fmt_num(row.up_volume_ratio_10d)}x, "
             f"liquidity tier {row.liquidity_tier or 'n/a'} ({_fmt_money(row.dollar_volume)})."
         )
     return (
         f"Extension control {score:.2f}: RSI {_fmt_num(row.rsi_14)}, "
         f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, "
-        f"20D low distance {_fmt_pct(row.distance_from_20d_low)}."
+        f"20D low distance {_fmt_pct(row.distance_from_20d_low)}, fade flag {row.failed_gap_or_fade}."
     )
 
 
@@ -562,8 +615,9 @@ def score_short_term_candidates(
             scoring,
             normalization_context,
         )
-        risk_score, risk_flags = _short_term_risk(row)
-        risk_level = _risk_level(risk_score)
+        risk_score, risk_flags, risk_details = _short_term_risk_model(row, scoring)
+        risk_level = _risk_level(risk_score, scoring)
+        risk_details["level"] = risk_level
         confidence_score, expected_direction = _short_term_prediction(
             row,
             opportunity_score,
@@ -572,6 +626,7 @@ def score_short_term_candidates(
         reason_codes = _factor_reasons(factor_scores, risk_score, row)
         score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
         setup_type = _setup_type(row, risk_score)
+        setup_details = _setup_details(row, factor_scores, risk_score)
 
         results.append(
             ScoredCandidate(
@@ -621,10 +676,20 @@ def score_short_term_candidates(
                 rel_strength_qqq_5d=row.rel_strength_qqq_5d,
                 rel_strength_qqq_10d=row.rel_strength_qqq_10d,
                 rel_strength_qqq_20d=row.rel_strength_qqq_20d,
+                sector_relative_strength_5d=row.sector_relative_strength_5d,
+                sector_relative_strength_10d=row.sector_relative_strength_10d,
+                sector_relative_strength_20d=row.sector_relative_strength_20d,
                 volume_persistence_5d=row.volume_persistence_5d,
                 volume_persistence_10d=row.volume_persistence_10d,
                 volume_z_score_20d=row.volume_z_score_20d,
+                up_volume_ratio_10d=row.up_volume_ratio_10d,
                 liquidity_tier=row.liquidity_tier,
+                close_location_1d=row.close_location_1d,
+                close_location_5d=row.close_location_5d,
+                close_location_20d=row.close_location_20d,
+                market_regime_score=row.market_regime_score,
+                market_regime_label=row.market_regime_label,
+                failed_gap_or_fade=row.failed_gap_or_fade,
                 expected_direction=expected_direction,
                 expected_window="1d-5d",
                 confidence_score=round(confidence_score, 4),
@@ -632,6 +697,8 @@ def score_short_term_candidates(
                 factor_scores=factor_scores,
                 factor_summaries=factor_summaries,
                 factor_details=factor_details,
+                risk_details=risk_details,
+                setup_details=setup_details,
             )
         )
 
@@ -642,6 +709,57 @@ def score_short_term_candidates(
 def _risk_mean(values: list[float | None]) -> float:
     present = [value for value in values if value is not None]
     return _mean_score(present)
+
+
+def _configured_risk_weights(scoring: dict[str, Any] | None) -> dict[str, float]:
+    configured = (scoring or {}).get("risk_weights")
+    weights = RISK_WEIGHT_DEFAULTS.copy()
+    if isinstance(configured, dict):
+        for name in weights:
+            if name in configured:
+                weights[name] = float(configured[name])
+    return weights
+
+
+def _configured_risk_levels(scoring: dict[str, Any] | None) -> dict[str, float]:
+    configured = (scoring or {}).get("risk_levels")
+    levels = RISK_LEVEL_DEFAULTS.copy()
+    if isinstance(configured, dict):
+        for name in levels:
+            if name in configured:
+                levels[name] = float(configured[name])
+    return levels
+
+
+def _configured_risk_thresholds(scoring: dict[str, Any] | None) -> dict[str, dict[str, tuple[float, float]]]:
+    thresholds = {
+        bucket: values.copy()
+        for bucket, values in RISK_THRESHOLD_DEFAULTS.items()
+    }
+    configured = (scoring or {}).get("risk_thresholds")
+    if isinstance(configured, dict):
+        for bucket, values in configured.items():
+            if not isinstance(values, dict):
+                continue
+            thresholds.setdefault(str(bucket), {})
+            for metric, raw_range in values.items():
+                if (
+                    isinstance(raw_range, list | tuple)
+                    and len(raw_range) == 2
+                ):
+                    thresholds[str(bucket)][str(metric)] = (
+                        float(raw_range[0]),
+                        float(raw_range[1]),
+                    )
+    return thresholds
+
+
+def _risk_range(
+    thresholds: dict[str, dict[str, tuple[float, float]]],
+    bucket: str,
+    metric: str,
+) -> tuple[float, float]:
+    return thresholds[bucket][metric]
 
 
 def _risk_component(value: float | None, low: float, high: float) -> float | None:
@@ -693,90 +811,143 @@ def _event_risk(days: float | None) -> float:
     return _clamp(1 - days / 7, 0.25, 1.0)
 
 
-def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
-    stretch_vs_atr = _stretch_vs_atr(row)
-    extension_score = _risk_mean(
-        [
-            _risk_component(row.rsi_14, 60, 80),
-            _risk_component(row.return_5d, 0.04, 0.16),
-            _risk_component(row.return_10d, 0.08, 0.24),
-            _risk_component(row.return_20d, 0.10, 0.30),
-            _risk_component(row.distance_from_20d_low, 0.08, 0.28),
-            _risk_component(row.distance_from_20d_high, -0.08, 0.02),
-            _risk_component(stretch_vs_atr, 1.0, 3.5),
-        ]
-    )
-    volatility_score = _risk_mean(
-        [
-            _risk_component(row.atr_14_pct, 0.02, 0.07),
-            _risk_component(abs(row.gap_1d) if row.gap_1d is not None else None, 0.01, 0.06),
-            _risk_component(abs(row.return_1d) if row.return_1d is not None else None, 0.02, 0.08),
-        ]
-    )
-    liquidity_score = _risk_mean(
-        [
-            _liquidity_tier_risk(row.liquidity_tier),
-            _inverse_risk_component(row.dollar_volume, 5_000_000, 100_000_000),
-            _risk_component(row.volume_ratio_5d, 1.5, 4.0),
-            _inverse_risk_component(row.volume_persistence_10d, 0.2, 0.8),
-        ]
-    )
-    trend_failure_score = _risk_mean(
-        [
-            _negative_risk_component(row.close_vs_sma_20, 0.0, 0.08),
-            _negative_risk_component(row.sma_5_20_ratio, 0.0, 0.06),
-            _inverse_risk_component(row.up_day_ratio_10d, 0.3, 0.7),
-        ]
-    )
-    event_score = _event_risk(row.upcoming_earnings_days)
+def _risk_metric(
+    *,
+    metric: str,
+    raw: float | None,
+    low: float | None = None,
+    high: float | None = None,
+    direction: str = "higher_is_riskier",
+    score: float | None = None,
+) -> dict[str, Any]:
+    if score is None:
+        if low is None or high is None:
+            component_score = None
+        elif direction == "lower_is_riskier":
+            component_score = _inverse_risk_component(raw, low, high)
+        elif direction == "negative_is_riskier":
+            component_score = _negative_risk_component(raw, low, high)
+        else:
+            component_score = _risk_component(raw, low, high)
+    else:
+        component_score = score
+    return {
+        "metric": metric,
+        "raw": raw,
+        "low": low,
+        "high": high,
+        "direction": direction,
+        "score": round(component_score, 4) if component_score is not None else None,
+    }
 
-    risk = (
-        0.33 * extension_score
-        + 0.20 * volatility_score
-        + 0.20 * liquidity_score
-        + 0.15 * trend_failure_score
-        + 0.12 * event_score
-    )
+
+def _bucket_detail(name: str, weight: float, metrics: list[dict[str, Any]], evidence: str) -> dict[str, Any]:
+    score = _risk_mean([metric.get("score") for metric in metrics])
+    return {
+        "score": round(score, 4),
+        "weight": round(weight, 4),
+        "contribution": round(weight * score, 4),
+        "evidence": evidence,
+        "metrics": metrics,
+        "severity": "high" if score >= 0.65 else "moderate" if score >= 0.30 else "low",
+        "label": name,
+    }
+
+
+def _short_term_risk_model(
+    row: StockMetrics,
+    scoring: dict[str, Any] | None = None,
+) -> tuple[float, list[str], dict[str, Any]]:
+    raw_weights = _configured_risk_weights(scoring)
+    weight_sum = sum(raw_weights.values()) or 1.0
+    weights = {name: weight / weight_sum for name, weight in raw_weights.items()}
+    thresholds = _configured_risk_thresholds(scoring)
+    stretch_vs_atr = _stretch_vs_atr(row)
+
+    extension_metrics = [
+        _risk_metric(metric="rsi_14", raw=row.rsi_14, low=_risk_range(thresholds, "extension", "rsi_14")[0], high=_risk_range(thresholds, "extension", "rsi_14")[1]),
+        _risk_metric(metric="return_5d", raw=row.return_5d, low=_risk_range(thresholds, "extension", "return_5d")[0], high=_risk_range(thresholds, "extension", "return_5d")[1]),
+        _risk_metric(metric="return_10d", raw=row.return_10d, low=_risk_range(thresholds, "extension", "return_10d")[0], high=_risk_range(thresholds, "extension", "return_10d")[1]),
+        _risk_metric(metric="return_20d", raw=row.return_20d, low=_risk_range(thresholds, "extension", "return_20d")[0], high=_risk_range(thresholds, "extension", "return_20d")[1]),
+        _risk_metric(metric="distance_from_20d_low", raw=row.distance_from_20d_low, low=_risk_range(thresholds, "extension", "distance_from_20d_low")[0], high=_risk_range(thresholds, "extension", "distance_from_20d_low")[1]),
+        _risk_metric(metric="distance_from_20d_high", raw=row.distance_from_20d_high, low=_risk_range(thresholds, "extension", "distance_from_20d_high")[0], high=_risk_range(thresholds, "extension", "distance_from_20d_high")[1]),
+        _risk_metric(metric="stretch_vs_atr", raw=stretch_vs_atr, low=_risk_range(thresholds, "extension", "stretch_vs_atr")[0], high=_risk_range(thresholds, "extension", "stretch_vs_atr")[1]),
+    ]
+    volatility_metrics = [
+        _risk_metric(metric="atr_14_pct", raw=row.atr_14_pct, low=_risk_range(thresholds, "volatility", "atr_14_pct")[0], high=_risk_range(thresholds, "volatility", "atr_14_pct")[1]),
+        _risk_metric(metric="abs_gap_1d", raw=abs(row.gap_1d) if row.gap_1d is not None else None, low=_risk_range(thresholds, "volatility", "abs_gap_1d")[0], high=_risk_range(thresholds, "volatility", "abs_gap_1d")[1]),
+        _risk_metric(metric="abs_return_1d", raw=abs(row.return_1d) if row.return_1d is not None else None, low=_risk_range(thresholds, "volatility", "abs_return_1d")[0], high=_risk_range(thresholds, "volatility", "abs_return_1d")[1]),
+        _risk_metric(metric="failed_gap_or_fade", raw=1.0 if row.failed_gap_or_fade else 0.0, direction="event", score=1.0 if row.failed_gap_or_fade else 0.0),
+    ]
+    liquidity_metrics = [
+        _risk_metric(metric="liquidity_tier", raw=None, direction="tier", score=_liquidity_tier_risk(row.liquidity_tier)),
+        _risk_metric(metric="dollar_volume", raw=row.dollar_volume, low=_risk_range(thresholds, "liquidity", "dollar_volume")[0], high=_risk_range(thresholds, "liquidity", "dollar_volume")[1], direction="lower_is_riskier"),
+        _risk_metric(metric="volume_ratio_5d", raw=row.volume_ratio_5d, low=_risk_range(thresholds, "liquidity", "volume_ratio_5d")[0], high=_risk_range(thresholds, "liquidity", "volume_ratio_5d")[1]),
+        _risk_metric(metric="volume_persistence_10d", raw=row.volume_persistence_10d, low=_risk_range(thresholds, "liquidity", "volume_persistence_10d")[0], high=_risk_range(thresholds, "liquidity", "volume_persistence_10d")[1], direction="lower_is_riskier"),
+    ]
+    trend_failure_metrics = [
+        _risk_metric(metric="close_vs_sma_20", raw=row.close_vs_sma_20, low=_risk_range(thresholds, "trend_failure", "close_vs_sma_20")[0], high=_risk_range(thresholds, "trend_failure", "close_vs_sma_20")[1], direction="negative_is_riskier"),
+        _risk_metric(metric="sma_5_20_ratio", raw=row.sma_5_20_ratio, low=_risk_range(thresholds, "trend_failure", "sma_5_20_ratio")[0], high=_risk_range(thresholds, "trend_failure", "sma_5_20_ratio")[1], direction="negative_is_riskier"),
+        _risk_metric(metric="up_day_ratio_10d", raw=row.up_day_ratio_10d, low=_risk_range(thresholds, "trend_failure", "up_day_ratio_10d")[0], high=_risk_range(thresholds, "trend_failure", "up_day_ratio_10d")[1], direction="lower_is_riskier"),
+    ]
+    event_metrics = [
+        _risk_metric(metric="upcoming_earnings_days", raw=row.upcoming_earnings_days, direction="nearer_is_riskier", score=_event_risk(row.upcoming_earnings_days)),
+    ]
+
+    components = {
+        "extension": _bucket_detail(
+            "extension risk",
+            weights["extension"],
+            extension_metrics,
+            (
+                f"RSI {_fmt_num(row.rsi_14)}, 5D return {_fmt_pct(row.return_5d)}, "
+                f"10D return {_fmt_pct(row.return_10d)}, 20D low distance {_fmt_pct(row.distance_from_20d_low)}"
+            ),
+        ),
+        "volatility": _bucket_detail(
+            "volatility risk",
+            weights["volatility"],
+            volatility_metrics,
+            f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, 1D return {_fmt_pct(row.return_1d)}, fade flag {row.failed_gap_or_fade}",
+        ),
+        "liquidity": _bucket_detail(
+            "liquidity/participation risk",
+            weights["liquidity"],
+            liquidity_metrics,
+            (
+                f"tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}, "
+                f"5D volume {_fmt_num(row.volume_ratio_5d)}x"
+            ),
+        ),
+        "trend_failure": _bucket_detail(
+            "trend failure risk",
+            weights["trend_failure"],
+            trend_failure_metrics,
+            (
+                f"close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
+                f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, up-day ratio 10D {_fmt_pct(row.up_day_ratio_10d)}"
+            ),
+        ),
+        "event": _bucket_detail(
+            "event risk",
+            weights["event"],
+            event_metrics,
+            f"earnings in {_fmt_num(row.upcoming_earnings_days)} days",
+        ),
+    }
+
+    risk = sum(component["contribution"] for component in components.values())
 
     flags = [
         flag
-        for flag in [
-            _risk_detail(
-                "extension risk",
-                extension_score,
-                (
-                    f"RSI {_fmt_num(row.rsi_14)}, 5D return {_fmt_pct(row.return_5d)}, "
-                    f"10D return {_fmt_pct(row.return_10d)}, 20D low distance {_fmt_pct(row.distance_from_20d_low)}"
-                ),
-            ),
-            _risk_detail(
-                "volatility risk",
-                volatility_score,
-                f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, 1D return {_fmt_pct(row.return_1d)}",
-            ),
-            _risk_detail(
-                "liquidity/participation risk",
-                liquidity_score,
-                (
-                    f"tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}, "
-                    f"5D volume {_fmt_num(row.volume_ratio_5d)}x"
-                ),
-            ),
-            _risk_detail(
-                "trend failure risk",
-                trend_failure_score,
-                (
-                    f"close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
-                    f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, up-day ratio 10D {_fmt_pct(row.up_day_ratio_10d)}"
-                ),
-            ),
-            _risk_detail(
-                "event risk",
-                event_score,
-                f"earnings in {_fmt_num(row.upcoming_earnings_days)} days",
-            ),
-        ]
-        if flag is not None
+        for component in components.values()
+        if (
+            flag := _risk_detail(
+                component["label"],
+                component["score"],
+                component["evidence"],
+            )
+        ) is not None
     ]
 
     if not flags:
@@ -786,13 +957,26 @@ def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
             f"liquidity adequate: tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}",
         ]
 
-    return _clamp(max(risk, MIN_SHORT_TERM_RISK), 0.0, 1.0), flags
+    score = _clamp(max(risk, MIN_SHORT_TERM_RISK), 0.0, 1.0)
+    details = {
+        "score": round(score, 4),
+        "weights": {name: round(weight, 4) for name, weight in weights.items()},
+        "components": components,
+        "flags": flags,
+    }
+    return score, flags, details
 
 
-def _risk_level(risk_score: float) -> str:
-    if risk_score < 0.25:
+def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
+    risk_score, risk_flags, _ = _short_term_risk_model(row)
+    return risk_score, risk_flags
+
+
+def _risk_level(risk_score: float, scoring: dict[str, Any] | None = None) -> str:
+    levels = _configured_risk_levels(scoring)
+    if risk_score < levels["low_max"]:
         return "low"
-    if risk_score < 0.50:
+    if risk_score < levels["medium_max"]:
         return "medium"
     return "high"
 
@@ -832,6 +1016,47 @@ def _setup_type(row: StockMetrics, risk_score: float) -> str:
     ):
         return "breakout watch"
     return "pullback risk"
+
+
+def _setup_details(
+    row: StockMetrics,
+    factor_scores: dict[str, float],
+    risk_score: float,
+) -> dict[str, Any]:
+    trend = factor_scores.get("trend", 0.0)
+    momentum = factor_scores.get("momentum", 0.0)
+    relative_strength = factor_scores.get("relative_strength", 0.0)
+    participation = factor_scores.get("participation", 0.0)
+    extension = factor_scores.get("extension", 0.0)
+    risk_control = 1 - risk_score
+
+    diagnostics = {
+        "trend_confirmation": {
+            "score": round(_clamp(0.35 * trend + 0.20 * momentum + 0.20 * relative_strength + 0.15 * participation + 0.10 * risk_control, 0.0, 1.0), 4),
+            "formula": "0.35*trend + 0.20*momentum + 0.20*relative_strength + 0.15*participation + 0.10*risk_control",
+        },
+        "momentum_continuation": {
+            "score": round(_clamp(0.30 * momentum + 0.25 * relative_strength + 0.15 * participation + 0.15 * extension + 0.15 * risk_control, 0.0, 1.0), 4),
+            "formula": "0.30*momentum + 0.25*relative_strength + 0.15*participation + 0.15*extension + 0.15*risk_control",
+        },
+        "breakout_watch": {
+            "score": round(_clamp(0.25 * trend + 0.25 * participation + 0.20 * relative_strength + 0.15 * momentum + 0.15 * (row.close_location_20d or 0.0), 0.0, 1.0), 4),
+            "formula": "0.25*trend + 0.25*participation + 0.20*relative_strength + 0.15*momentum + 0.15*close_location_20d",
+        },
+        "pullback_risk": {
+            "score": round(_clamp(0.30 * (1 - trend) + 0.25 * (1 - momentum) + 0.25 * risk_score + 0.20 * (1 - extension), 0.0, 1.0), 4),
+            "formula": "0.30*(1-trend) + 0.25*(1-momentum) + 0.25*risk + 0.20*(1-extension)",
+        },
+    }
+    best_setup, best_payload = max(
+        diagnostics.items(),
+        key=lambda item: item[1]["score"],
+    )
+    return {
+        "best_setup_score": best_setup,
+        "best_score": best_payload["score"],
+        "setups": diagnostics,
+    }
 
 
 def _short_term_prediction(
