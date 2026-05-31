@@ -60,6 +60,19 @@ class SmokeTests(unittest.TestCase):
                     "best_setup_score": "trend_confirmation",
                     "best_score": 0.82,
                     "setups": {"trend_confirmation": {"score": 0.82}},
+                    "regime_probabilities": {"continuation": 0.72, "mean_reversion": 0.20, "volatility_expansion": 0.30},
+                },
+                "lifecycle_details": {
+                    "phase": "expansion",
+                    "phase_scores": {"expansion": 0.72, "exhaustion": 0.20},
+                    "regime_probabilities": {"continuation": 0.72, "mean_reversion": 0.20, "volatility_expansion": 0.30},
+                    "signals": {
+                        "poor_price_volume_efficiency": 0.25,
+                        "distribution_pressure": False,
+                        "failed_gap_or_fade": False,
+                        "rs_decoupling": False,
+                    },
+                    "note": "Heuristic regime probabilities; not yet calibrated to historical forward outcomes.",
                 },
                 "expected_direction": "bullish regime if conditions persist",
                 "expected_window": "1d-5d",
@@ -71,7 +84,13 @@ class SmokeTests(unittest.TestCase):
                 "close_location_5d": 0.82,
                 "close_location_20d": 0.88,
                 "up_volume_ratio_10d": 1.6,
+                "volume_acceleration_5d_20d": 0.4,
+                "price_volume_efficiency_5d": 0.03,
+                "effort_vs_result_5d": 30.0,
+                "distribution_day_count_10d": 1.0,
                 "failed_gap_or_fade": False,
+                "rs_decoupling": False,
+                "distribution_pressure": False,
                 "risk_flags": ["controlled volatility: ATR/gap/1D move are not elevated"],
                 "risk_details": {
                     "components": {
@@ -127,6 +146,7 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("<summary><strong>Formula details</strong>", proposal)
         self.assertIn("<summary><strong>Risk details</strong>", proposal)
         self.assertIn("**Setup diagnostics:**", proposal)
+        self.assertIn("**Lifecycle and failure diagnostics:**", proposal)
         self.assertIn("Market regime: 0.70 (supportive)", proposal)
         self.assertIn("pct_rank(return_20d)", proposal)
         self.assertIn("**Regime:** bullish regime if conditions persist", proposal)
@@ -176,13 +196,21 @@ class SmokeTests(unittest.TestCase):
             volume_persistence_10d=0.7,
             volume_z_score_20d=1.4,
             up_volume_ratio_10d=1.7,
+            volume_acceleration_5d_20d=0.4,
+            price_volume_efficiency_5d=0.03,
+            effort_vs_result_5d=30.0,
+            distribution_day_count_10d=1.0,
             liquidity_tier="medium",
             close_location_1d=0.80,
             close_location_5d=0.90,
             close_location_20d=0.85,
             market_regime_score=0.65,
             market_regime_label="supportive",
+            momentum_acceleration_5d_10d=0.015,
+            rs_momentum_5d_20d=0.01,
             failed_gap_or_fade=False,
+            rs_decoupling=False,
+            distribution_pressure=False,
             atr_14_pct=0.03,
             rsi_14=61.0,
             rel_strength_spy_5d=0.03,
@@ -206,10 +234,12 @@ class SmokeTests(unittest.TestCase):
         self.assertIsNotNone(candidate.factor_details)
         self.assertIsNotNone(candidate.risk_details)
         self.assertIsNotNone(candidate.setup_details)
+        self.assertIsNotNone(candidate.lifecycle_details)
         assert candidate.factor_scores is not None
         assert candidate.factor_details is not None
         assert candidate.risk_details is not None
         assert candidate.setup_details is not None
+        assert candidate.lifecycle_details is not None
         for score in candidate.factor_scores.values():
             self.assertGreaterEqual(score, 0.0)
             self.assertLessEqual(score, 1.0)
@@ -220,7 +250,10 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("extension", candidate.risk_details["components"])
         self.assertIn("sector_relative_strength_10d", [item["metric"] for item in candidate.factor_details["relative_strength"]["components"]])
         self.assertIn("up_volume_ratio_10d", [item["metric"] for item in candidate.factor_details["participation"]["components"]])
+        self.assertIn("momentum_acceleration_5d_10d", [item["metric"] for item in candidate.factor_details["momentum"]["components"]])
         self.assertEqual(candidate.setup_details["best_setup_score"], "trend_confirmation")
+        self.assertIn(candidate.lifecycle_details["phase"], {"ignition", "expansion", "euphoria", "exhaustion", "reversal"})
+        self.assertIn("continuation", candidate.lifecycle_details["regime_probabilities"])
         self.assertTrue(any("volume z-score" in item for item in candidate.factor_summaries or []))
         self.assertTrue(any("liquidity tier medium" in item for item in candidate.factor_summaries or []))
         self.assertIn("TREND_CONSTRUCTIVE", candidate.reason_codes)

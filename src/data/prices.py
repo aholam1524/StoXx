@@ -90,6 +90,15 @@ def _up_volume_ratio(closes: pd.Series, volumes: pd.Series, window: int = 10) ->
     return _safe_float(up_volume / down_volume)
 
 
+def _distribution_day_count(closes: pd.Series, volumes: pd.Series, avg_volume: float | None, window: int = 10) -> float | None:
+    if avg_volume is None or avg_volume <= 0 or len(closes) < window + 1 or len(volumes) < window + 1:
+        return None
+    recent_closes = closes.tail(window + 1)
+    recent_volumes = volumes.reindex(recent_closes.index).tail(window)
+    changes = recent_closes.diff().dropna().tail(window)
+    return _safe_float(((changes < 0) & (recent_volumes > avg_volume)).sum())
+
+
 def _atr_pct(frame: pd.DataFrame, window: int = 14) -> float | None:
     if len(frame) < window + 1 or not {"High", "Low", "Close"}.issubset(frame.columns):
         return None
@@ -252,6 +261,8 @@ def enrich_short_term_metrics(
                     row.volume_z_score_20d = (latest_volume - avg_volume_20) / volume_std_20
             if avg_volume_5 is not None and avg_volume_20 is not None and avg_volume_20 > 0:
                 row.volume_trend_5d_20d = avg_volume_5 / avg_volume_20
+                if row.volume_ratio_5d is not None:
+                    row.volume_acceleration_5d_20d = row.volume_ratio_5d - row.volume_trend_5d_20d
             if avg_volume_20 is not None and avg_volume_20 > 0:
                 recent_5 = volumes.tail(5)
                 recent_10 = volumes.tail(10)
@@ -259,7 +270,11 @@ def enrich_short_term_metrics(
                     row.volume_persistence_5d = _safe_float((recent_5 > avg_volume_20).sum() / 5)
                 if len(recent_10) == 10:
                     row.volume_persistence_10d = _safe_float((recent_10 > avg_volume_20).sum() / 10)
+            row.distribution_day_count_10d = _distribution_day_count(closes, volumes, avg_volume_20, 10)
         row.up_volume_ratio_10d = _up_volume_ratio(closes, volumes, 10)
+        if row.return_5d is not None and row.volume_ratio_5d is not None and row.volume_ratio_5d > 0:
+            row.price_volume_efficiency_5d = row.return_5d / row.volume_ratio_5d
+            row.effort_vs_result_5d = row.volume_ratio_5d / max(abs(row.return_5d), 0.01)
         if latest_close is not None and latest_volume is not None:
             row.dollar_volume = latest_close * latest_volume
             row.liquidity_tier = _liquidity_tier(row.dollar_volume)
@@ -339,6 +354,22 @@ def enrich_short_term_metrics(
                 row.rel_strength_spy_20d = row.return_20d - spy_20d
             if qqq_20d is not None:
                 row.rel_strength_qqq_20d = row.return_20d - qqq_20d
+        if row.return_5d is not None and row.return_10d is not None:
+            row.momentum_acceleration_5d_10d = row.return_5d - (row.return_10d / 2)
+        if row.rel_strength_spy_5d is not None and row.rel_strength_spy_20d is not None:
+            row.rs_momentum_5d_20d = row.rel_strength_spy_5d - (row.rel_strength_spy_20d / 4)
+        row.rs_decoupling = bool(
+            row.return_5d is not None
+            and row.return_5d > 0.03
+            and row.rs_momentum_5d_20d is not None
+            and row.rs_momentum_5d_20d < 0
+        )
+        row.distribution_pressure = bool(
+            row.distribution_day_count_10d is not None
+            and row.distribution_day_count_10d >= 3
+            and row.up_volume_ratio_10d is not None
+            and row.up_volume_ratio_10d < 1
+        )
         row.current_price = latest_close
 
     sector_returns: dict[str, dict[str, list[float]]] = {}

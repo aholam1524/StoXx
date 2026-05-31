@@ -172,9 +172,23 @@ def _candidate_groups(item: dict[str, Any]) -> list[str]:
 
     setup_details = item.get("setup_details") or {}
     if isinstance(setup_details, dict):
-        for name, payload in setup_details.items():
+        for name, payload in (setup_details.get("setups") or setup_details).items():
             if isinstance(payload, dict):
                 groups.append(f"setup_score:{name}:{_factor_bucket(safe_float(payload.get('score')))}")
+
+    lifecycle_details = item.get("lifecycle_details") or {}
+    if isinstance(lifecycle_details, dict):
+        if lifecycle_details.get("phase"):
+            groups.append(f"lifecycle_phase:{lifecycle_details.get('phase')}")
+        probabilities = lifecycle_details.get("regime_probabilities") or {}
+        if isinstance(probabilities, dict):
+            for name, score in probabilities.items():
+                groups.append(f"regime_probability:{name}:{_factor_bucket(safe_float(score))}")
+        signals = lifecycle_details.get("signals") or {}
+        if isinstance(signals, dict):
+            for name, value in signals.items():
+                if value is True:
+                    groups.append(f"failure_signal:{name}")
 
     risk_components = (item.get("risk_details") or {}).get("components") or {}
     if isinstance(risk_components, dict):

@@ -19,6 +19,7 @@ credentials.*
 # Generated screener / proposal outputs
 outputs/*
 !outputs/.gitkeep
+!outputs/proposals.md
 
 # Logs and temporary files
 *.log

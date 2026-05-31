@@ -86,6 +86,10 @@ METRIC_EXPLANATIONS = [
     ("volume_trend_5d_20d", "Recent 5D average volume divided by the 20D average volume."),
     ("volume_persistence_5d/10d", "Share of recent days with volume above the 20D average."),
     ("up_volume_ratio_10d", "Volume on up days divided by volume on down days over the last 10 sessions."),
+    ("volume_acceleration_5d_20d", "Latest volume participation versus the recent 5D/20D volume trend."),
+    ("price_volume_efficiency_5d", "5D return per unit of relative volume; falling efficiency can warn of exhaustion."),
+    ("effort_vs_result_5d", "Volume effort divided by absolute 5D price result; high values can mean heavy effort with little progress."),
+    ("distribution_day_count_10d", "Count of recent down days with above-average volume."),
     ("volume_z_score_20d", "How many standard deviations latest volume is from the trailing 20D average."),
     ("liquidity_tier", "Dollar-volume bucket: high, medium, low, or thin."),
     ("dollar_volume", "Latest close multiplied by latest volume."),
@@ -98,7 +102,10 @@ METRIC_EXPLANATIONS = [
     ("rsi_14", "14D relative strength index; high values can indicate stretch."),
     ("gap_1d", "Latest open compared with the prior close."),
     ("failed_gap_or_fade", "True when a gap/strong session closes weakly inside the daily range."),
+    ("rs_decoupling", "True when price rises but relative-strength momentum fades."),
+    ("distribution_pressure", "True when multiple high-volume down days suggest distribution."),
     ("setup_details", "Setup-specific scores used to diagnose which setup style the candidate best fits."),
+    ("lifecycle_details", "Heuristic phase/regime diagnostics such as ignition, expansion, euphoria, exhaustion, and reversal."),
     ("upcoming_earnings_days", "Days until earnings; negative means the date is already past."),
 ]
 
@@ -189,13 +196,17 @@ def _factor_detail_value(metric: str, value: float | None) -> str:
         "volume_persistence",
         "sector_relative_strength",
         "close_location",
+        "momentum_acceleration",
+        "price_volume_efficiency",
     )
     multiple_metrics = {
         "volume_ratio_5d",
         "volume_ratio_20d",
         "volume_trend_5d_20d",
+        "volume_acceleration_5d_20d",
         "stretch_vs_atr",
         "up_volume_ratio_10d",
+        "effort_vs_result_5d",
     }
     if metric == "dollar_volume":
         return _market_cap(value)
@@ -299,6 +310,43 @@ def _setup_details_block(candidate: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _lifecycle_details_block(candidate: dict[str, Any]) -> list[str]:
+    details = candidate.get("lifecycle_details") or {}
+    if not isinstance(details, dict) or not details:
+        return []
+    probabilities = details.get("regime_probabilities") or {}
+    phase_scores = details.get("phase_scores") or {}
+    signals = details.get("signals") or {}
+    lines = [
+        "**Lifecycle and failure diagnostics:**",
+        f"- Current phase estimate: {str(details.get('phase') or 'n/a').replace('_', ' ')}.",
+    ]
+    if isinstance(probabilities, dict):
+        lines.append(
+            "- Regime probabilities: "
+            f"continuation {_num(probabilities.get('continuation'))}; "
+            f"mean reversion {_num(probabilities.get('mean_reversion'))}; "
+            f"volatility expansion {_num(probabilities.get('volatility_expansion'))}."
+        )
+    if isinstance(phase_scores, dict):
+        lines.append(
+            "- Phase scores: "
+            + "; ".join(f"{name.replace('_', ' ')} {_num(score)}" for name, score in phase_scores.items())
+            + "."
+        )
+    if isinstance(signals, dict):
+        lines.append(
+            "- Failure signals: "
+            f"poor efficiency {_num(signals.get('poor_price_volume_efficiency'))}; "
+            f"distribution {signals.get('distribution_pressure')}; "
+            f"fade {signals.get('failed_gap_or_fade')}; "
+            f"RS decoupling {signals.get('rs_decoupling')}."
+        )
+    if details.get("note"):
+        lines.append(f"- Note: {details.get('note')}")
+    return lines
+
+
 def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
@@ -310,6 +358,7 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
         f"- Returns: 1D {_pct(candidate.get('return_1d'))}; 5D {_pct(candidate.get('return_5d'))}; 10D {_pct(candidate.get('return_10d'))}; 20D {_pct(candidate.get('return_20d'))}.",
         f"- Trend quality: SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}; close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}; up days 5D {_pct(candidate.get('up_day_ratio_5d'))}; up days 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
         f"- Range and volatility: 5D high {_pct(candidate.get('distance_from_5d_high'))}; 5D low {_pct(candidate.get('distance_from_5d_low'))}; 20D high {_pct(candidate.get('distance_from_20d_high'))}; 20D low {_pct(candidate.get('distance_from_20d_low'))}; close location 1D {_pct(candidate.get('close_location_1d'))}; 5D {_pct(candidate.get('close_location_5d'))}; 20D {_pct(candidate.get('close_location_20d'))}; ATR14 {_pct(candidate.get('atr_14_pct'))}; gap {_pct(candidate.get('gap_1d'))}; RSI14 {_num(candidate.get('rsi_14'))}; fade flag {candidate.get('failed_gap_or_fade')}.",
+        f"- Acceleration/failure: momentum acceleration {_pct(candidate.get('momentum_acceleration_5d_10d'))}; RS momentum {_pct(candidate.get('rs_momentum_5d_20d'))}; RS decoupling {candidate.get('rs_decoupling')}; distribution pressure {candidate.get('distribution_pressure')}.",
         "",
         "**Benchmark relative strength:**",
         f"- Versus SPY: 1D {_pct(candidate.get('rel_strength_spy_1d'))}; 5D {_pct(candidate.get('rel_strength_spy_5d'))}; 10D {_pct(candidate.get('rel_strength_spy_10d'))}; 20D {_pct(candidate.get('rel_strength_spy_20d'))}.",
@@ -320,6 +369,7 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
         "**Volume and liquidity:**",
         f"- Relative volume: 5D {_num(candidate.get('volume_ratio_5d'))}x; 20D {_num(candidate.get('volume_ratio_20d'))}x; 5D/20D trend {_num(candidate.get('volume_trend_5d_20d'))}x.",
         f"- Participation evidence: volume z-score {_num(candidate.get('volume_z_score_20d'))}; elevated-volume persistence 5D {_pct(candidate.get('volume_persistence_5d'))}; 10D {_pct(candidate.get('volume_persistence_10d'))}; up/down volume 10D {_num(candidate.get('up_volume_ratio_10d'))}x.",
+        f"- Volume quality: acceleration {_num(candidate.get('volume_acceleration_5d_20d'))}; price/volume efficiency {_pct(candidate.get('price_volume_efficiency_5d'))}; effort/result {_num(candidate.get('effort_vs_result_5d'))}x; distribution days 10D {_num(candidate.get('distribution_day_count_10d'))}.",
         f"- Liquidity: tier {candidate.get('liquidity_tier') or 'n/a'}; dollar volume {_market_cap(candidate.get('dollar_volume'))}.",
         "",
         "**Other context:**",
@@ -357,6 +407,9 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
     volume_persistence_10d = candidate.get("volume_persistence_10d")
     volume_z_score = candidate.get("volume_z_score_20d")
     up_volume_ratio = candidate.get("up_volume_ratio_10d")
+    volume_acceleration = candidate.get("volume_acceleration_5d_20d")
+    price_volume_efficiency = candidate.get("price_volume_efficiency_5d")
+    distribution_days = candidate.get("distribution_day_count_10d")
     liquidity_tier = candidate.get("liquidity_tier")
     atr = candidate.get("atr_14_pct")
     sma_ratio = candidate.get("sma_5_20_ratio")
@@ -365,6 +418,9 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
     market_regime_score = candidate.get("market_regime_score")
     market_regime_label = candidate.get("market_regime_label")
     failed_gap_or_fade = candidate.get("failed_gap_or_fade")
+    rs_decoupling = candidate.get("rs_decoupling")
+    distribution_pressure = candidate.get("distribution_pressure")
+    lifecycle_details = candidate.get("lifecycle_details") or {}
     up_day_5d = candidate.get("up_day_ratio_5d")
     if return_1d is not None:
         if return_1d > 0:
@@ -392,6 +448,12 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(f"Latest volume z-score versus the trailing 20 days is {_num(volume_z_score)}.")
     if up_volume_ratio is not None:
         observations.append(f"10-day up/down volume ratio is {_num(up_volume_ratio)}x.")
+    if volume_acceleration is not None:
+        observations.append(f"Volume acceleration is {_num(volume_acceleration)}.")
+    if price_volume_efficiency is not None:
+        observations.append(f"5-day price/volume efficiency is {_pct(price_volume_efficiency)}.")
+    if distribution_days is not None:
+        observations.append(f"Distribution-day count over 10 days is {_num(distribution_days)}.")
     if volume_persistence_5d is not None:
         observations.append(f"Elevated-volume persistence over 5 days is {_pct(volume_persistence_5d)}.")
     if volume_persistence_10d is not None:
@@ -432,6 +494,12 @@ def _allowed_observations(candidate: dict[str, Any]) -> list[str]:
         observations.append(f"Market regime score is {_num(market_regime_score)} ({market_regime_label or 'n/a'}).")
     if failed_gap_or_fade:
         observations.append("Failed gap or intraday fade risk is flagged.")
+    if rs_decoupling:
+        observations.append("Relative-strength decoupling is flagged.")
+    if distribution_pressure:
+        observations.append("Distribution pressure is flagged.")
+    if isinstance(lifecycle_details, dict) and lifecycle_details.get("phase"):
+        observations.append(f"Lifecycle phase estimate is {str(lifecycle_details['phase']).replace('_', ' ')}.")
     if atr is not None:
         observations.append(f"ATR 14 is {_pct(atr)} of price.")
     observations.extend(candidate.get("reasons") or [])
@@ -544,6 +612,8 @@ def _deterministic_proposal(candidate: dict[str, Any]) -> str:
             "",
             *_setup_details_block(candidate),
             "",
+            *_lifecycle_details_block(candidate),
+            "",
             *_metric_block(candidate),
             "",
             "**Why it screens well:**",
@@ -576,6 +646,8 @@ def _format_ollama_json(candidate: dict[str, Any], payload: dict[str, Any]) -> s
         *_risk_details_block(candidate),
         "",
         *_setup_details_block(candidate),
+        "",
+        *_lifecycle_details_block(candidate),
         "",
         *_metric_block(candidate),
         "",
@@ -630,6 +702,9 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
         "volume_persistence_10d",
         "volume_z_score_20d",
         "up_volume_ratio_10d",
+        "volume_acceleration_5d_20d",
+        "price_volume_efficiency_5d",
+        "distribution_day_count_10d",
         "liquidity_tier",
         "rel_strength_spy_5d",
         "rel_strength_spy_10d",
@@ -642,6 +717,8 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
         "market_regime_score",
         "close_location_20d",
         "failed_gap_or_fade",
+        "rs_decoupling",
+        "distribution_pressure",
         "sma_5_20_ratio",
         "close_vs_sma_20",
         "up_day_ratio_5d",
@@ -724,7 +801,14 @@ Candidate facts:
 - Market regime: {_num(candidate.get("market_regime_score"))} ({candidate.get("market_regime_label") or "n/a"})
 - Close location 1D/5D/20D: {_pct(candidate.get("close_location_1d"))} / {_pct(candidate.get("close_location_5d"))} / {_pct(candidate.get("close_location_20d"))}
 - 10-day up/down volume ratio: {_num(candidate.get("up_volume_ratio_10d"))}x
+- Volume acceleration 5D/20D: {_num(candidate.get("volume_acceleration_5d_20d"))}
+- Price/volume efficiency 5D: {_pct(candidate.get("price_volume_efficiency_5d"))}
+- Effort vs result 5D: {_num(candidate.get("effort_vs_result_5d"))}x
+- Distribution days 10D: {_num(candidate.get("distribution_day_count_10d"))}
 - Failed gap or fade flag: {candidate.get("failed_gap_or_fade")}
+- RS decoupling flag: {candidate.get("rs_decoupling")}
+- Distribution pressure flag: {candidate.get("distribution_pressure")}
+- Lifecycle phase: {(candidate.get("lifecycle_details") or {}).get("phase") or "n/a"}
 - Setup type: {candidate.get("setup_type")}
 - Opportunity score: {_num(candidate.get("opportunity_score"))}
 - Risk score: {_num(candidate.get("risk_score"))}
@@ -754,7 +838,7 @@ Required JSON schema:
   "plan": ["2-4 bullets focused on what to watch"],
   "risks": ["2-4 bullets using only allowed risk notes"],
   "verdict": "one cautious sentence",
-  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "up_volume_ratio_10d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sector_relative_strength_10d", "sector_relative_strength_20d", "market_regime_score", "close_location_20d", "failed_gap_or_fade", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
+  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "up_volume_ratio_10d", "volume_acceleration_5d_20d", "price_volume_efficiency_5d", "distribution_day_count_10d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sector_relative_strength_10d", "sector_relative_strength_20d", "market_regime_score", "close_location_20d", "failed_gap_or_fade", "rs_decoupling", "distribution_pressure", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
 }}
 """.strip()
 
@@ -888,6 +972,10 @@ SUMMARY_COLUMNS = [
     "volume_persistence_10d",
     "volume_z_score_20d",
     "up_volume_ratio_10d",
+    "volume_acceleration_5d_20d",
+    "price_volume_efficiency_5d",
+    "effort_vs_result_5d",
+    "distribution_day_count_10d",
     "liquidity_tier",
     "distance_from_5d_high",
     "distance_from_5d_low",
@@ -907,7 +995,11 @@ SUMMARY_COLUMNS = [
     "rsi_14",
     "market_regime_score",
     "market_regime_label",
+    "momentum_acceleration_5d_10d",
+    "rs_momentum_5d_20d",
     "upcoming_earnings_days",
+    "rs_decoupling",
+    "distribution_pressure",
     "risk_flags",
     "risk_details",
     "reason_codes",
@@ -915,6 +1007,7 @@ SUMMARY_COLUMNS = [
     "factor_summaries",
     "factor_details",
     "setup_details",
+    "lifecycle_details",
 ]
 
 
@@ -933,4 +1026,5 @@ def write_metrics_summary(candidates: list[dict[str, Any]], output_path: Path) -
             row["factor_summaries"] = "; ".join(candidate.get("factor_summaries") or [])
             row["factor_details"] = json.dumps(candidate.get("factor_details") or {}, sort_keys=True)
             row["setup_details"] = json.dumps(candidate.get("setup_details") or {}, sort_keys=True)
+            row["lifecycle_details"] = json.dumps(candidate.get("lifecycle_details") or {}, sort_keys=True)
             writer.writerow(row)
