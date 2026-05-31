@@ -31,10 +31,10 @@ short_term_scoring:
   # 1-day to 1-week view: score grouped factors, not duplicate raw signals.
   factor_weights:
     trend: 0.25
-    momentum: 0.20
+    momentum: 0.15
     relative_strength: 0.25
     participation: 0.20
-    extension: 0.10
+    extension: 0.15
   factor_components:
     trend:
       sma_5_20_ratio: 0.30

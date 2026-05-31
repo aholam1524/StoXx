@@ -34,7 +34,8 @@ class SmokeTests(unittest.TestCase):
         risk_score, risk_flags = _short_term_risk(row)
 
         self.assertGreaterEqual(risk_score, 0.10)
-        self.assertIn("low visible short-term risk flags", risk_flags)
+        self.assertIn("controlled volatility: ATR/gap/1D move are not elevated", risk_flags)
+        self.assertIn("no near-term earnings flag", risk_flags)
 
     def test_deterministic_proposal_does_not_need_ollama(self) -> None:
         proposal = _deterministic_proposal(
@@ -51,7 +52,7 @@ class SmokeTests(unittest.TestCase):
                 "setup_type": "trend confirmation",
                 "expected_direction": "bullish regime if conditions persist",
                 "expected_window": "1d-5d",
-                "risk_flags": ["low visible short-term risk flags"],
+                "risk_flags": ["controlled volatility: ATR/gap/1D move are not elevated"],
                 "reason_codes": ["TREND_CONSTRUCTIVE"],
                 "factor_scores": {
                     "trend": 0.75,
@@ -164,6 +165,125 @@ class SmokeTests(unittest.TestCase):
         self.assertNotIn("MOMENTUM_5D_POSITIVE", candidate.reason_codes)
         self.assertLessEqual(len(candidate.reason_codes or []), 6)
 
+    def test_near_threshold_extension_gets_above_floor_risk(self) -> None:
+        row = StockMetrics(
+            symbol="TEST",
+            name="Test Company",
+            sector="Technology",
+            industry="Software",
+            market_cap=500_000_000,
+            trailing_pe=20.0,
+            forward_pe=None,
+            price_to_book=3.0,
+            peg_ratio=None,
+            revenue_growth=None,
+            debt_to_equity=None,
+            free_cashflow=None,
+            current_price=10.0,
+            return_1d=0.03,
+            return_5d=0.14,
+            return_10d=0.21,
+            return_20d=0.15,
+            distance_from_20d_high=-0.01,
+            distance_from_20d_low=0.24,
+            atr_14_pct=0.04,
+            rsi_14=66.0,
+            dollar_volume=200_000_000,
+            liquidity_tier="high",
+            volume_persistence_10d=0.8,
+            close_vs_sma_20=0.04,
+            sma_5_20_ratio=0.03,
+            up_day_ratio_10d=0.7,
+        )
+
+        risk_score, risk_flags = _short_term_risk(row)
+
+        self.assertGreater(risk_score, 0.25)
+        self.assertTrue(any("extension risk" in flag for flag in risk_flags))
+
+    def test_thin_liquidity_increases_risk(self) -> None:
+        row = StockMetrics(
+            symbol="TEST",
+            name="Test Company",
+            sector="Technology",
+            industry="Software",
+            market_cap=500_000_000,
+            trailing_pe=20.0,
+            forward_pe=None,
+            price_to_book=3.0,
+            peg_ratio=None,
+            revenue_growth=None,
+            debt_to_equity=None,
+            free_cashflow=None,
+            current_price=10.0,
+            dollar_volume=1_000_000,
+            liquidity_tier="thin",
+            volume_persistence_10d=0.1,
+        )
+
+        risk_score, risk_flags = _short_term_risk(row)
+
+        self.assertGreater(risk_score, 0.10)
+        self.assertTrue(any("liquidity/participation risk" in flag for flag in risk_flags))
+
+    def test_earnings_today_increases_event_risk(self) -> None:
+        row = StockMetrics(
+            symbol="TEST",
+            name="Test Company",
+            sector="Technology",
+            industry="Software",
+            market_cap=500_000_000,
+            trailing_pe=20.0,
+            forward_pe=None,
+            price_to_book=3.0,
+            peg_ratio=None,
+            revenue_growth=None,
+            debt_to_equity=None,
+            free_cashflow=None,
+            current_price=10.0,
+            upcoming_earnings_days=0.0,
+        )
+
+        risk_score, risk_flags = _short_term_risk(row)
+
+        self.assertGreater(risk_score, 0.10)
+        self.assertTrue(any("event risk" in flag for flag in risk_flags))
+
+    def test_calm_liquid_candidate_stays_lower_risk_with_evidence(self) -> None:
+        row = StockMetrics(
+            symbol="TEST",
+            name="Test Company",
+            sector="Technology",
+            industry="Software",
+            market_cap=500_000_000,
+            trailing_pe=20.0,
+            forward_pe=None,
+            price_to_book=3.0,
+            peg_ratio=None,
+            revenue_growth=None,
+            debt_to_equity=None,
+            free_cashflow=None,
+            current_price=10.0,
+            return_1d=0.005,
+            return_5d=0.02,
+            return_10d=0.03,
+            return_20d=0.04,
+            gap_1d=0.001,
+            atr_14_pct=0.02,
+            rsi_14=55.0,
+            dollar_volume=250_000_000,
+            liquidity_tier="high",
+            volume_persistence_10d=0.7,
+            close_vs_sma_20=0.02,
+            sma_5_20_ratio=0.01,
+            up_day_ratio_10d=0.6,
+        )
+
+        risk_score, risk_flags = _short_term_risk(row)
+
+        self.assertLess(risk_score, 0.25)
+        self.assertIn("controlled volatility: ATR/gap/1D move are not elevated", risk_flags)
+
     def test_relative_strength_rewards_10d_20d_outperformance(self) -> None:
         base = {
             "sector": "Technology",
@@ -234,7 +354,7 @@ class SmokeTests(unittest.TestCase):
         risk_score, risk_flags = _short_term_risk(row)
 
         self.assertGreater(risk_score, 0.10)
-        self.assertIn("RSI above 70", risk_flags)
+        self.assertTrue(any("extension risk" in flag for flag in risk_flags))
 
 
 if __name__ == "__main__":
