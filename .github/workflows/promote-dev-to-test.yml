@@ -62,5 +62,6 @@ jobs:
               --base test \
               --head dev \
               --title "Promote dev to test" \
-              --body "Automated PR opened after validation passed on dev."
+              --body "Automated PR opened after validation passed on dev." \
+              || echo "::warning::GitHub Actions is not allowed to create PRs here. Open dev -> test manually or enable Actions PR creation in repository settings."
           fi

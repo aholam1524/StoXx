@@ -33,6 +33,35 @@ def _scale(value: float | None, low: float, high: float) -> float:
     return _clamp((value - low) / (high - low), 0.0, 1.0)
 
 
+def _mean_score(values: list[float]) -> float:
+    return statistics.fmean(values) if values else 0.0
+
+
+def _weighted_score(scores: dict[str, float], weights: dict[str, float]) -> float:
+    weight_sum = sum(weights.values())
+    if weight_sum <= 0:
+        return 0.0
+    return sum(weights[name] * scores.get(name, 0.0) for name in weights) / weight_sum
+
+
+def _fmt_pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:.1f}%"
+
+
+def _fmt_num(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
+
+
+def _fmt_money(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    if value >= 1_000_000_000:
+        return f"${value / 1_000_000_000:.1f}B"
+    if value >= 1_000_000:
+        return f"${value / 1_000_000:.1f}M"
+    return f"${value:,.0f}"
+
+
 def _ideal_rsi_score(value: float | None) -> float:
     """Prefer constructive RSI, but avoid extremely overbought readings."""
     if value is None:
@@ -176,6 +205,342 @@ def score_candidates(
     return results
 
 
+def _factor_weights(scoring: dict[str, Any]) -> dict[str, float]:
+    factor_weights = scoring.get("factor_weights")
+    if isinstance(factor_weights, dict):
+        return {
+            "trend": float(factor_weights.get("trend", 0.25)),
+            "momentum": float(factor_weights.get("momentum", 0.25)),
+            "relative_strength": float(factor_weights.get("relative_strength", 0.20)),
+            "participation": float(factor_weights.get("participation", 0.20)),
+            "extension": float(factor_weights.get("extension", 0.10)),
+        }
+
+    # Backward-compatible defaults for older flat signal configs.
+    return {
+        "trend": (
+            float(scoring.get("return_20d", 0.05))
+            + float(scoring.get("sma_5_20_ratio", 0.08))
+            + float(scoring.get("close_vs_sma_20", 0.06))
+            + float(scoring.get("up_day_ratio_5d", 0.07))
+            + float(scoring.get("up_day_ratio_10d", 0.05))
+            + float(scoring.get("near_5d_high", 0.08))
+            + float(scoring.get("near_20d_high", 0.05))
+        ),
+        "momentum": (
+            float(scoring.get("return_1d", 0.20))
+            + float(scoring.get("return_5d", 0.25))
+            + float(scoring.get("return_10d", 0.10))
+        ),
+        "relative_strength": (
+            float(scoring.get("relative_spy_5d", 0.14))
+            + float(scoring.get("relative_qqq_5d", 0.10))
+        ),
+        "participation": (
+            float(scoring.get("volume_ratio_5d", 0.18))
+            + float(scoring.get("volume_ratio_20d", 0.10))
+            + float(scoring.get("volume_trend_5d_20d", 0.06))
+            + float(scoring.get("dollar_volume", 0.04))
+        ),
+        "extension": float(scoring.get("rsi_14", 0.10)),
+    }
+
+
+FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
+    "trend": {
+        "sma_5_20_ratio": 0.30,
+        "close_vs_sma_20": 0.25,
+        "return_20d": 0.25,
+        "up_day_ratio_10d": 0.20,
+    },
+    "momentum": {
+        "return_1d": 0.15,
+        "return_5d": 0.30,
+        "return_10d": 0.30,
+        "return_20d": 0.25,
+    },
+    "relative_strength": {
+        "rel_strength_spy_1d": 0.03,
+        "rel_strength_qqq_1d": 0.02,
+        "rel_strength_spy_5d": 0.20,
+        "rel_strength_qqq_5d": 0.15,
+        "rel_strength_spy_10d": 0.25,
+        "rel_strength_qqq_10d": 0.15,
+        "rel_strength_spy_20d": 0.15,
+        "rel_strength_qqq_20d": 0.10,
+    },
+    "participation": {
+        "volume_ratio_5d": 0.20,
+        "volume_ratio_20d": 0.20,
+        "volume_trend_5d_20d": 0.15,
+        "volume_persistence_5d": 0.15,
+        "volume_persistence_10d": 0.15,
+        "volume_z_score_20d": 0.10,
+        "dollar_volume": 0.05,
+    },
+    "extension": {
+        "rsi_control": 0.30,
+        "atr_14_pct": 0.25,
+        "stretch_vs_atr": 0.20,
+        "distance_from_20d_low": 0.15,
+        "abs_gap_1d": 0.10,
+    },
+}
+
+INVERTED_COMPONENTS = {
+    "atr_14_pct",
+    "stretch_vs_atr",
+    "distance_from_20d_low",
+    "abs_gap_1d",
+}
+
+
+def _factor_components(scoring: dict[str, Any]) -> dict[str, dict[str, float]]:
+    components = {factor: values.copy() for factor, values in FACTOR_COMPONENT_DEFAULTS.items()}
+    configured = scoring.get("factor_components")
+    if isinstance(configured, dict):
+        for factor, values in configured.items():
+            if isinstance(values, dict):
+                components[str(factor)] = {
+                    str(metric): float(weight)
+                    for metric, weight in values.items()
+                }
+    return components
+
+
+def _component_raw_value(row: StockMetrics, metric: str) -> float | None:
+    if metric == "rsi_control":
+        return _ideal_rsi_score(row.rsi_14)
+    if metric == "stretch_vs_atr":
+        if row.atr_14_pct is None or row.atr_14_pct <= 0 or row.return_5d is None:
+            return None
+        return row.return_5d / row.atr_14_pct
+    if metric == "abs_gap_1d":
+        return abs(row.gap_1d) if row.gap_1d is not None else None
+    value = getattr(row, metric, None)
+    return float(value) if isinstance(value, int | float) else None
+
+
+def _metric_distribution(rows: list[StockMetrics], metric: str) -> dict[str, Any]:
+    values = [
+        value
+        for row in rows
+        if (value := _component_raw_value(row, metric)) is not None
+    ]
+    if not values:
+        return {"values": [], "mean": None, "std": None}
+    mean = statistics.fmean(values)
+    std = statistics.pstdev(values) if len(values) > 1 else 0.0
+    return {"values": sorted(values), "mean": mean, "std": std}
+
+
+def _build_normalization_context(
+    rows: list[StockMetrics],
+    components: dict[str, dict[str, float]],
+) -> dict[str, dict[str, Any]]:
+    metrics = sorted({metric for values in components.values() for metric in values})
+    return {metric: _metric_distribution(rows, metric) for metric in metrics}
+
+
+def _percentile_rank(value: float | None, values: list[float]) -> float:
+    if value is None or not values:
+        return 0.0
+    if len(values) == 1:
+        return 1.0
+    if values[0] == values[-1]:
+        return 0.5
+    less = sum(1 for item in values if item < value)
+    equal = sum(1 for item in values if item == value)
+    return _clamp((less + (equal - 1) / 2) / (len(values) - 1), 0.0, 1.0)
+
+
+def _z_score(value: float | None, distribution: dict[str, Any]) -> float | None:
+    std = distribution.get("std")
+    mean = distribution.get("mean")
+    if value is None or mean is None or std is None or std <= 0:
+        return None
+    return (value - mean) / std
+
+
+def _component_details(
+    row: StockMetrics,
+    factor: str,
+    weights: dict[str, float],
+    context: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    weight_sum = sum(weights.values()) or 1.0
+    details: list[dict[str, Any]] = []
+    for metric, weight in weights.items():
+        raw_value = _component_raw_value(row, metric)
+        distribution = context.get(metric, {"values": [], "mean": None, "std": None})
+        percentile = _percentile_rank(raw_value, distribution["values"])
+        component_score = 1 - percentile if metric in INVERTED_COMPONENTS else percentile
+        normalized_weight = weight / weight_sum
+        details.append(
+            {
+                "factor": factor,
+                "metric": metric,
+                "weight": round(normalized_weight, 4),
+                "raw": raw_value,
+                "percentile": round(percentile, 4),
+                "z_score": (
+                    round(z, 4)
+                    if (z := _z_score(raw_value, distribution)) is not None
+                    else None
+                ),
+                "score": round(component_score, 4),
+                "contribution": round(normalized_weight * component_score, 4),
+                "direction": "lower_is_better" if metric in INVERTED_COMPONENTS else "higher_is_better",
+            }
+        )
+    return details
+
+
+def _formula_text(details: list[dict[str, Any]]) -> str:
+    parts = [
+        f"{detail['weight']:.2f} * pct_rank({detail['metric']})"
+        for detail in details
+        if detail["direction"] == "higher_is_better"
+    ]
+    parts.extend(
+        f"{detail['weight']:.2f} * (1 - pct_rank({detail['metric']}))"
+        for detail in details
+        if detail["direction"] == "lower_is_better"
+    )
+    return " + ".join(parts)
+
+
+def _factor_formula_details(
+    row: StockMetrics,
+    scoring: dict[str, Any],
+    context: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    factor_details: dict[str, dict[str, Any]] = {}
+    for factor, weights in _factor_components(scoring).items():
+        details = _component_details(row, factor, weights, context)
+        score = sum(detail["contribution"] for detail in details)
+        factor_details[factor] = {
+            "score": round(_clamp(score, 0.0, 1.0), 4),
+            "formula": _formula_text(details),
+            "components": details,
+        }
+    return factor_details
+
+
+def _top_component(details: list[dict[str, Any]], metric: str) -> dict[str, Any] | None:
+    return next((detail for detail in details if detail["metric"] == metric), None)
+
+
+def _factor_summary(factor: str, row: StockMetrics, details: dict[str, Any]) -> str:
+    score = details["score"]
+    components = details["components"]
+    if factor == "trend":
+        return (
+            f"Trend {score:.2f}: 20D return {_fmt_pct(row.return_20d)} "
+            f"(pct {_fmt_num((_top_component(components, 'return_20d') or {}).get('percentile'))}), "
+            f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}."
+        )
+    if factor == "momentum":
+        return (
+            f"Momentum {score:.2f}: 1D {_fmt_pct(row.return_1d)}, 5D {_fmt_pct(row.return_5d)}, "
+            f"10D {_fmt_pct(row.return_10d)}, 20D {_fmt_pct(row.return_20d)}."
+        )
+    if factor == "relative_strength":
+        windows = [
+            ("10D vs SPY", row.rel_strength_spy_10d, "rel_strength_spy_10d"),
+            ("20D vs SPY", row.rel_strength_spy_20d, "rel_strength_spy_20d"),
+            ("10D vs QQQ", row.rel_strength_qqq_10d, "rel_strength_qqq_10d"),
+            ("20D vs QQQ", row.rel_strength_qqq_20d, "rel_strength_qqq_20d"),
+            ("5D vs SPY", row.rel_strength_spy_5d, "rel_strength_spy_5d"),
+            ("5D vs QQQ", row.rel_strength_qqq_5d, "rel_strength_qqq_5d"),
+        ]
+        label, value, metric = max(
+            (item for item in windows if item[1] is not None),
+            key=lambda item: item[1],
+            default=("benchmark window", None, ""),
+        )
+        percentile = (_top_component(components, metric) or {}).get("percentile")
+        return (
+            f"Relative strength {score:.2f}: strongest window {label} {_fmt_pct(value)} "
+            f"(pct {_fmt_num(percentile)}); 5D SPY {_fmt_pct(row.rel_strength_spy_5d)}, "
+            f"10D SPY {_fmt_pct(row.rel_strength_spy_10d)}, 20D SPY {_fmt_pct(row.rel_strength_spy_20d)}."
+        )
+    if factor == "participation":
+        persistence = _top_component(components, "volume_persistence_10d") or {}
+        return (
+            f"Participation {score:.2f}: volume z-score {_fmt_num(row.volume_z_score_20d)}, "
+            f"5D persistence {_fmt_pct(row.volume_persistence_5d)}, "
+            f"10D persistence {_fmt_pct(row.volume_persistence_10d)} "
+            f"(pct {_fmt_num(persistence.get('percentile'))}), "
+            f"liquidity tier {row.liquidity_tier or 'n/a'} ({_fmt_money(row.dollar_volume)})."
+        )
+    return (
+        f"Extension control {score:.2f}: RSI {_fmt_num(row.rsi_14)}, "
+        f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, "
+        f"20D low distance {_fmt_pct(row.distance_from_20d_low)}."
+    )
+
+
+def _factor_model(
+    row: StockMetrics,
+    scoring: dict[str, Any],
+    context: dict[str, dict[str, Any]],
+) -> tuple[float, dict[str, float], list[str], dict[str, Any]]:
+    factor_details = _factor_formula_details(row, scoring, context)
+    raw_scores = {
+        name: details["score"]
+        for name, details in factor_details.items()
+    }
+    factor_scores = {
+        name: round(score, 4)
+        for name, score in raw_scores.items()
+    }
+    summaries = [
+        _factor_summary(name, row, details)
+        for name, details in factor_details.items()
+    ]
+    opportunity_score = _weighted_score(raw_scores, _factor_weights(scoring))
+    return opportunity_score, factor_scores, summaries, factor_details
+
+
+def _factor_reasons(factor_scores: dict[str, float], risk_score: float, row: StockMetrics) -> list[str]:
+    reason_codes: list[str] = []
+    if factor_scores.get("trend", 0.0) >= 0.60:
+        reason_codes.append("TREND_CONSTRUCTIVE")
+    if factor_scores.get("momentum", 0.0) >= 0.60:
+        reason_codes.append("MOMENTUM_POSITIVE")
+    if factor_scores.get("relative_strength", 0.0) >= 0.60:
+        reason_codes.append("RELATIVE_STRENGTH_SUPPORTIVE")
+    if factor_scores.get("participation", 0.0) >= 0.60:
+        reason_codes.append("PARTICIPATION_EXPANDING")
+    if factor_scores.get("extension", 1.0) < 0.50 or risk_score >= 0.45:
+        reason_codes.append("EXTENSION_ELEVATED")
+    if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
+        reason_codes.append("RSI_CONSTRUCTIVE")
+    elif row.rsi_14 is not None and row.rsi_14 > 70:
+        reason_codes.append("RSI_STRETCHED")
+
+    if not reason_codes:
+        reason_codes.append("FACTOR_MODEL_MIXED")
+    return reason_codes
+
+
+def _factor_reason_text(factor_scores: dict[str, float]) -> list[str]:
+    labels = {
+        "trend": "trend factor",
+        "momentum": "momentum factor",
+        "relative_strength": "relative strength factor",
+        "participation": "participation factor",
+        "extension": "extension control factor",
+    }
+    reasons = [
+        f"{labels[name]} score {score:.2f}"
+        for name, score in factor_scores.items()
+        if score >= 0.60
+    ]
+    return reasons or ["factor model score is mixed"]
+
+
 def score_short_term_candidates(
     rows: list[StockMetrics],
     *,
@@ -184,131 +549,29 @@ def score_short_term_candidates(
 ) -> list[ScoredCandidate]:
     """Rank names for a 1-day to 1-week window using price/volume behavior."""
     filtered = [r for r in rows if passes_filters(r, filters)]
-
-    w_1d = float(scoring.get("return_1d", 0.20))
-    w_5d = float(scoring.get("return_5d", 0.25))
-    w_10d = float(scoring.get("return_10d", 0.10))
-    w_volume = float(scoring.get("volume_ratio_5d", 0.18))
-    w_volume_20 = float(scoring.get("volume_ratio_20d", 0.10))
-    w_volume_trend = float(scoring.get("volume_trend_5d_20d", 0.06))
-    w_high = float(scoring.get("near_5d_high", 0.08))
-    w_high_20 = float(scoring.get("near_20d_high", 0.05))
-    w_rsi = float(scoring.get("rsi_14", 0.10))
-    w_spy = float(scoring.get("relative_spy_5d", 0.14))
-    w_qqq = float(scoring.get("relative_qqq_5d", 0.10))
-    w_trend = float(scoring.get("return_20d", 0.05))
-    w_sma = float(scoring.get("sma_5_20_ratio", 0.08))
-    w_close_sma = float(scoring.get("close_vs_sma_20", 0.06))
-    w_up_5d = float(scoring.get("up_day_ratio_5d", 0.07))
-    w_up_10d = float(scoring.get("up_day_ratio_10d", 0.05))
-    w_liquidity = float(scoring.get("dollar_volume", 0.04))
-    weight_sum = (
-        w_1d
-        + w_5d
-        + w_10d
-        + w_volume
-        + w_volume_20
-        + w_volume_trend
-        + w_high
-        + w_high_20
-        + w_rsi
-        + w_spy
-        + w_qqq
-        + w_trend
-        + w_sma
-        + w_close_sma
-        + w_up_5d
-        + w_up_10d
-        + w_liquidity
-    )
-    if weight_sum <= 0:
-        weight_sum = 1.0
+    components = _factor_components(scoring)
+    normalization_context = _build_normalization_context(filtered, components)
 
     results: list[ScoredCandidate] = []
     for row in filtered:
         if row.return_1d is None or row.return_5d is None:
             continue
 
-        # These ranges favor positive short-term momentum without rewarding
-        # extreme one-day spikes too heavily.
-        one_day = _scale(row.return_1d, -0.03, 0.04)
-        five_day = _scale(row.return_5d, -0.05, 0.10)
-        ten_day = _scale(row.return_10d, -0.08, 0.16)
-        volume = _scale(row.volume_ratio_5d, 0.75, 2.50)
-        volume_20 = _scale(row.volume_ratio_20d, 0.80, 2.75)
-        volume_trend = _scale(row.volume_trend_5d_20d, 0.70, 1.60)
-        near_high = _scale(row.distance_from_5d_high, -0.08, 0.0)
-        near_high_20 = _scale(row.distance_from_20d_high, -0.12, 0.0)
-        rsi = _ideal_rsi_score(row.rsi_14)
-        relative_spy = _scale(row.rel_strength_spy_5d, -0.03, 0.08)
-        relative_qqq = _scale(row.rel_strength_qqq_5d, -0.03, 0.08)
-        trend_20d = _scale(row.return_20d, -0.08, 0.18)
-        sma_trend = _scale(row.sma_5_20_ratio, -0.04, 0.08)
-        close_vs_sma = _scale(row.close_vs_sma_20, -0.05, 0.10)
-        up_5d = _scale(row.up_day_ratio_5d, 0.20, 0.80)
-        up_10d = _scale(row.up_day_ratio_10d, 0.30, 0.80)
-        liquidity = _scale(row.dollar_volume, 10_000_000, 400_000_000)
-
-        opportunity_score = (
-            w_1d * one_day
-            + w_5d * five_day
-            + w_10d * ten_day
-            + w_volume * volume
-            + w_volume_20 * volume_20
-            + w_volume_trend * volume_trend
-            + w_high * near_high
-            + w_high_20 * near_high_20
-            + w_rsi * rsi
-            + w_spy * relative_spy
-            + w_qqq * relative_qqq
-            + w_trend * trend_20d
-            + w_sma * sma_trend
-            + w_close_sma * close_vs_sma
-            + w_up_5d * up_5d
-            + w_up_10d * up_10d
-            + w_liquidity * liquidity
-        ) / weight_sum
+        opportunity_score, factor_scores, factor_summaries, factor_details = _factor_model(
+            row,
+            scoring,
+            normalization_context,
+        )
         risk_score, risk_flags = _short_term_risk(row)
         risk_level = _risk_level(risk_score)
-        confidence_score, expected_direction, reason_codes = _short_term_prediction(
+        confidence_score, expected_direction = _short_term_prediction(
             row,
             opportunity_score,
             risk_score,
         )
+        reason_codes = _factor_reasons(factor_scores, risk_score, row)
         score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
         setup_type = _setup_type(row, risk_score)
-
-        reasons: list[str] = []
-        if row.return_5d is not None and row.return_5d > 0.02:
-            reasons.append("positive 5-day momentum")
-        if row.return_10d is not None and row.return_10d > 0.03:
-            reasons.append("positive 10-day momentum")
-        if row.return_1d is not None and row.return_1d > 0:
-            reasons.append("positive latest session")
-        if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
-            reasons.append("volume above recent average")
-        if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
-            reasons.append("volume above 20-day average")
-        if row.volume_trend_5d_20d is not None and row.volume_trend_5d_20d > 1.10:
-            reasons.append("5-day volume trend above 20-day average")
-        if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
-            reasons.append("trading near 5-day high")
-        if row.distance_from_20d_high is not None and row.distance_from_20d_high > -0.03:
-            reasons.append("trading near 20-day high")
-        if row.sma_5_20_ratio is not None and row.sma_5_20_ratio > 0:
-            reasons.append("5-day average above 20-day average")
-        if row.close_vs_sma_20 is not None and row.close_vs_sma_20 > 0:
-            reasons.append("price above 20-day average")
-        if row.up_day_ratio_5d is not None and row.up_day_ratio_5d >= 0.60:
-            reasons.append("most recent sessions closed higher")
-        if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
-            reasons.append("RSI in constructive range")
-        if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
-            reasons.append("outperforming SPY over 5 days")
-        if row.rel_strength_qqq_5d is not None and row.rel_strength_qqq_5d > 0:
-            reasons.append("outperforming QQQ over 5 days")
-        if not reasons:
-            reasons.append("short-term composite score")
 
         results.append(
             ScoredCandidate(
@@ -324,7 +587,7 @@ def score_short_term_candidates(
                 market_cap=row.market_cap,
                 current_price=row.current_price,
                 graham_match=_graham_match(row.trailing_pe, row.price_to_book),
-                reasons=reasons,
+                reasons=_factor_reason_text(factor_scores),
                 opportunity_score=round(opportunity_score, 4),
                 risk_score=round(risk_score, 4),
                 risk_level=risk_level,
@@ -352,12 +615,23 @@ def score_short_term_candidates(
                 rsi_14=row.rsi_14,
                 rel_strength_spy_1d=row.rel_strength_spy_1d,
                 rel_strength_spy_5d=row.rel_strength_spy_5d,
+                rel_strength_spy_10d=row.rel_strength_spy_10d,
+                rel_strength_spy_20d=row.rel_strength_spy_20d,
                 rel_strength_qqq_1d=row.rel_strength_qqq_1d,
                 rel_strength_qqq_5d=row.rel_strength_qqq_5d,
+                rel_strength_qqq_10d=row.rel_strength_qqq_10d,
+                rel_strength_qqq_20d=row.rel_strength_qqq_20d,
+                volume_persistence_5d=row.volume_persistence_5d,
+                volume_persistence_10d=row.volume_persistence_10d,
+                volume_z_score_20d=row.volume_z_score_20d,
+                liquidity_tier=row.liquidity_tier,
                 expected_direction=expected_direction,
                 expected_window="1d-5d",
                 confidence_score=round(confidence_score, 4),
                 reason_codes=reason_codes,
+                factor_scores=factor_scores,
+                factor_summaries=factor_summaries,
+                factor_details=factor_details,
             )
         )
 
@@ -471,46 +745,13 @@ def _short_term_prediction(
     row: StockMetrics,
     opportunity_score: float,
     risk_score: float,
-) -> tuple[float, str, list[str]]:
-    reason_codes: list[str] = []
-    if row.return_5d is not None and row.return_5d > 0.02:
-        reason_codes.append("MOMENTUM_5D_POSITIVE")
-    if row.return_10d is not None and row.return_10d > 0.03:
-        reason_codes.append("MOMENTUM_10D_POSITIVE")
-    if row.return_1d is not None and row.return_1d > 0:
-        reason_codes.append("LATEST_SESSION_POSITIVE")
-    if row.rel_strength_spy_5d is not None and row.rel_strength_spy_5d > 0:
-        reason_codes.append("OUTPERFORMS_SPY_5D")
-    if row.rel_strength_qqq_5d is not None and row.rel_strength_qqq_5d > 0:
-        reason_codes.append("OUTPERFORMS_QQQ_5D")
-    if row.volume_ratio_5d is not None and row.volume_ratio_5d > 1.25:
-        reason_codes.append("VOLUME_5D_ABOVE_AVERAGE")
-    if row.volume_ratio_20d is not None and row.volume_ratio_20d > 1.25:
-        reason_codes.append("VOLUME_20D_ABOVE_AVERAGE")
-    if row.volume_trend_5d_20d is not None and row.volume_trend_5d_20d > 1.10:
-        reason_codes.append("VOLUME_TREND_EXPANDING")
-    if row.distance_from_5d_high is not None and row.distance_from_5d_high > -0.02:
-        reason_codes.append("NEAR_5D_HIGH")
-    if row.distance_from_20d_high is not None and row.distance_from_20d_high > -0.03:
-        reason_codes.append("NEAR_20D_HIGH")
-    if row.sma_5_20_ratio is not None and row.sma_5_20_ratio > 0:
-        reason_codes.append("SMA_5_ABOVE_SMA_20")
-    if row.close_vs_sma_20 is not None and row.close_vs_sma_20 > 0:
-        reason_codes.append("PRICE_ABOVE_SMA_20")
-    if row.up_day_ratio_5d is not None and row.up_day_ratio_5d >= 0.60:
-        reason_codes.append("UP_DAY_RATIO_5D_SUPPORTIVE")
-    if row.rsi_14 is not None and 45 <= row.rsi_14 <= 65:
-        reason_codes.append("RSI_CONSTRUCTIVE")
-
+) -> tuple[float, str]:
     confidence = _clamp(0.60 * opportunity_score + 0.40 * (1 - risk_score), 0.0, 1.0)
     if confidence >= 0.70 and opportunity_score >= 0.65 and risk_score < 0.45:
-        expected_direction = "up"
+        expected_direction = "bullish regime if conditions persist"
     elif risk_score >= 0.45:
-        expected_direction = "mixed/high-risk"
+        expected_direction = "extended/high-risk regime"
     else:
         expected_direction = "neutral/watch"
 
-    if not reason_codes:
-        reason_codes.append("COMPOSITE_SCORE")
-
-    return confidence, expected_direction, reason_codes
+    return confidence, expected_direction
