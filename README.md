@@ -223,3 +223,23 @@ git status --short
 ```
 
 Do not commit generated proposal/result files if they contain time-sensitive research output.
+
+## CI/CD
+
+This project uses GitHub Actions for pull-request validation and main-branch artifact packaging.
+
+Branch flow:
+
+- Open pull requests into `test` for validation before wider testing.
+- Open pull requests into `main` for release-ready validation.
+- Pushes to `main` create a downloadable source zip artifact.
+- The `dev` branch is not directly gated unless you open a PR from `dev` into `test` or `main`.
+
+Workflows:
+
+- `.github/workflows/ci.yml` runs on pull requests into `test` and `main`.
+- `.github/workflows/release.yml` runs on pushes to `main`.
+
+The CI checks install dependencies, compile the Python files, and run lightweight smoke tests. They intentionally do not run the live screener or Ollama because Yahoo/Wikipedia can rate-limit and Ollama is local to your PC.
+
+The release workflow uploads `stock-agent-source.zip` as a GitHub Actions artifact. The package excludes generated outputs, caches, virtual environments, and local secret files.

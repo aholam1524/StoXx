@@ -40,19 +40,32 @@ def _market_cap(value: float | None) -> str:
     return f"${value:,.0f}"
 
 
+def _metric_guide() -> list[str]:
+    return [
+        "## How To Read This Report",
+        "",
+        "- **Returns:** Recent price change over 1, 5, 10, and 20 trading days.",
+        "- **Relative strength:** Return compared with SPY/QQQ. Positive means the stock outperformed that benchmark.",
+        "- **Volume ratios:** Current/recent volume compared with normal volume. Above 1.00x means higher than average activity.",
+        "- **Range/volatility:** Distance from recent highs/lows shows if price is near a breakout or already extended. ATR14 estimates normal daily movement.",
+        "- **Trend quality:** SMA and up-day ratios show whether the move is consistent or just a one-day spike.",
+        "- **Scores:** Opportunity ranks setup quality; risk estimates visible short-term risk; confidence combines opportunity and risk.",
+        "",
+    ]
+
+
 def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
-        f"- Market: {candidate.get('market') or 'n/a'}; exchange: {candidate.get('exchange') or 'n/a'}.",
-        f"- Price: {_num(candidate.get('current_price'))}; market cap: {_market_cap(candidate.get('market_cap'))}.",
-        f"- Returns: 1D {_pct(candidate.get('return_1d'))}, 5D {_pct(candidate.get('return_5d'))}, 10D {_pct(candidate.get('return_10d'))}, 20D {_pct(candidate.get('return_20d'))}.",
-        f"- Relative strength: SPY 1D {_pct(candidate.get('rel_strength_spy_1d'))}, SPY 5D {_pct(candidate.get('rel_strength_spy_5d'))}, QQQ 1D {_pct(candidate.get('rel_strength_qqq_1d'))}, QQQ 5D {_pct(candidate.get('rel_strength_qqq_5d'))}.",
-        f"- Volume: 5D ratio {_num(candidate.get('volume_ratio_5d'))}x, 20D ratio {_num(candidate.get('volume_ratio_20d'))}x, 5D/20D trend {_num(candidate.get('volume_trend_5d_20d'))}x, dollar volume {_market_cap(candidate.get('dollar_volume'))}.",
-        f"- Range/volatility: 5D high distance {_pct(candidate.get('distance_from_5d_high'))}, 5D low distance {_pct(candidate.get('distance_from_5d_low'))}, 20D high distance {_pct(candidate.get('distance_from_20d_high'))}, 20D low distance {_pct(candidate.get('distance_from_20d_low'))}, ATR14 {_pct(candidate.get('atr_14_pct'))}, opening gap {_pct(candidate.get('gap_1d'))}.",
-        f"- Trend quality: SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}, close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}, up-day ratio 5D {_pct(candidate.get('up_day_ratio_5d'))}, up-day ratio 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
-        f"- RSI14: {_num(candidate.get('rsi_14'))}; upcoming earnings days: {_num(candidate.get('upcoming_earnings_days'))}.",
-        f"- Scores: rank score {_num(candidate.get('score'))}, opportunity {_num(candidate.get('opportunity_score'))}, risk {_num(candidate.get('risk_score'))} ({candidate.get('risk_level') or 'n/a'}), confidence {_num(candidate.get('confidence_score'))}.",
-        f"- Prediction: {candidate.get('expected_direction') or 'n/a'} over {candidate.get('expected_window') or 'n/a'}; setup: {candidate.get('setup_type') or 'n/a'}.",
+        f"- **Snapshot:** {candidate.get('market') or 'n/a'} / {candidate.get('exchange') or 'n/a'}; price {_num(candidate.get('current_price'))}; market cap {_market_cap(candidate.get('market_cap'))}.",
+        f"- **Returns:** 1D {_pct(candidate.get('return_1d'))}; 5D {_pct(candidate.get('return_5d'))}; 10D {_pct(candidate.get('return_10d'))}; 20D {_pct(candidate.get('return_20d'))}.",
+        f"- **Relative strength:** SPY 1D {_pct(candidate.get('rel_strength_spy_1d'))}; SPY 5D {_pct(candidate.get('rel_strength_spy_5d'))}; QQQ 1D {_pct(candidate.get('rel_strength_qqq_1d'))}; QQQ 5D {_pct(candidate.get('rel_strength_qqq_5d'))}.",
+        f"- **Volume/liquidity:** 5D volume {_num(candidate.get('volume_ratio_5d'))}x; 20D volume {_num(candidate.get('volume_ratio_20d'))}x; 5D/20D trend {_num(candidate.get('volume_trend_5d_20d'))}x; dollar volume {_market_cap(candidate.get('dollar_volume'))}.",
+        f"- **Range/volatility:** 5D high {_pct(candidate.get('distance_from_5d_high'))}; 5D low {_pct(candidate.get('distance_from_5d_low'))}; 20D high {_pct(candidate.get('distance_from_20d_high'))}; 20D low {_pct(candidate.get('distance_from_20d_low'))}; ATR14 {_pct(candidate.get('atr_14_pct'))}; gap {_pct(candidate.get('gap_1d'))}.",
+        f"- **Trend quality:** SMA 5/20 {_pct(candidate.get('sma_5_20_ratio'))}; close vs SMA20 {_pct(candidate.get('close_vs_sma_20'))}; up-day ratio 5D {_pct(candidate.get('up_day_ratio_5d'))}; up-day ratio 10D {_pct(candidate.get('up_day_ratio_10d'))}.",
+        f"- **Other context:** RSI14 {_num(candidate.get('rsi_14'))}; upcoming earnings days {_num(candidate.get('upcoming_earnings_days'))}.",
+        f"- **Scores:** rank {_num(candidate.get('score'))}; opportunity {_num(candidate.get('opportunity_score'))}; risk {_num(candidate.get('risk_score'))} ({candidate.get('risk_level') or 'n/a'}); confidence {_num(candidate.get('confidence_score'))}.",
+        f"- **Prediction:** {candidate.get('expected_direction') or 'n/a'} over {candidate.get('expected_window') or 'n/a'}; setup {candidate.get('setup_type') or 'n/a'}.",
     ]
 
 
@@ -412,6 +425,7 @@ def generate_short_term_proposals(
         "",
         DISCLAIMER,
         "",
+        *_metric_guide(),
     ]
 
     for rank, candidate in enumerate(candidates, start=1):

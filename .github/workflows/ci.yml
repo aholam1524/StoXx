@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - test
+      - main
+
+jobs:
+  validate:
+    name: Validate Python project
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile \
+            main.py \
+            scripts/generate_proposals.py \
+            scripts/run_short_term_agent.py \
+            scripts/evaluate_runs.py \
+            scripts/verify_ssl.py \
+            src/agent/ollama_client.py \
+            src/agent/short_term_proposals.py \
+            src/data/fetcher.py \
+            src/data/finland.py \
+            src/data/network.py \
+            src/data/prices.py \
+            src/data/sp500.py \
+            src/models/candidate.py \
+            src/screen/scorer.py
+
+      - name: Run smoke tests
+        run: python -m unittest discover -s tests -p "test_*.py"
