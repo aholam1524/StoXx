@@ -37,37 +37,33 @@ short_term_scoring:
     extension: 0.15
   factor_components:
     trend:
-      sma_5_20_ratio: 0.30
+      sma_5_20_ratio: 0.35
       close_vs_sma_20: 0.25
-      return_20d: 0.20
       up_day_ratio_10d: 0.15
-      close_location_20d: 0.10
-      market_regime_score: 0.05
+      close_location_20d: 0.15
+      market_regime_score: 0.10
     momentum:
+      momentum_acceleration_5d_10d: 0.35
       return_1d: 0.15
-      return_5d: 0.30
-      return_10d: 0.30
-      return_20d: 0.25
+      close_location_5d: 0.20
+      rs_momentum_5d_20d: 0.15
+      price_volume_efficiency_5d: 0.15
     relative_strength:
-      rel_strength_spy_1d: 0.03
-      rel_strength_qqq_1d: 0.02
-      rel_strength_spy_5d: 0.20
-      rel_strength_qqq_5d: 0.15
-      rel_strength_spy_10d: 0.25
+      rs_momentum_5d_20d: 0.25
+      rel_strength_spy_10d: 0.20
       rel_strength_qqq_10d: 0.15
-      rel_strength_spy_20d: 0.15
-      rel_strength_qqq_20d: 0.10
-      sector_relative_strength_5d: 0.08
-      sector_relative_strength_10d: 0.12
+      sector_relative_strength_5d: 0.15
+      sector_relative_strength_10d: 0.15
       sector_relative_strength_20d: 0.10
     participation:
-      volume_ratio_5d: 0.20
-      volume_ratio_20d: 0.15
-      volume_trend_5d_20d: 0.15
+      volume_acceleration_5d_20d: 0.15
+      volume_ratio_5d: 0.15
+      volume_trend_5d_20d: 0.10
       volume_persistence_5d: 0.15
       volume_persistence_10d: 0.15
       volume_z_score_20d: 0.10
-      up_volume_ratio_10d: 0.05
+      up_volume_ratio_10d: 0.10
+      price_volume_efficiency_5d: 0.10
       dollar_volume: 0.05
     extension:
       rsi_control: 0.25
@@ -76,6 +72,7 @@ short_term_scoring:
       distance_from_20d_low: 0.15
       abs_gap_1d: 0.10
       failed_gap_or_fade: 0.05
+      distribution_pressure: 0.05
   risk_levels:
     low_max: 0.25
     medium_max: 0.50
