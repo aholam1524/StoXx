@@ -17,15 +17,26 @@ class StockMetrics:
     debt_to_equity: float | None
     free_cashflow: float | None
     current_price: float | None
+    market: str = "US / S&P 500"
+    exchange: str = "NYSE/Nasdaq"
     upcoming_earnings_days: float | None = None
     return_1d: float | None = None
     return_5d: float | None = None
+    return_10d: float | None = None
     return_20d: float | None = None
     gap_1d: float | None = None
     volume_ratio_5d: float | None = None
     volume_ratio_20d: float | None = None
+    volume_trend_5d_20d: float | None = None
     distance_from_5d_high: float | None = None
     distance_from_5d_low: float | None = None
+    distance_from_20d_high: float | None = None
+    distance_from_20d_low: float | None = None
+    sma_5_20_ratio: float | None = None
+    close_vs_sma_20: float | None = None
+    up_day_ratio_5d: float | None = None
+    up_day_ratio_10d: float | None = None
+    dollar_volume: float | None = None
     atr_14_pct: float | None = None
     rsi_14: float | None = None
     rel_strength_spy_1d: float | None = None
@@ -46,6 +57,8 @@ class ScoredCandidate:
     symbol: str
     name: str
     sector: str
+    market: str
+    exchange: str
     score: float
     trailing_pe: float | None
     price_to_book: float | None
@@ -56,17 +69,27 @@ class ScoredCandidate:
     reasons: list[str]
     opportunity_score: float | None = None
     risk_score: float | None = None
+    risk_level: str | None = None
     setup_type: str | None = None
     risk_flags: list[str] | None = None
     upcoming_earnings_days: float | None = None
     return_1d: float | None = None
     return_5d: float | None = None
+    return_10d: float | None = None
     return_20d: float | None = None
     gap_1d: float | None = None
     volume_ratio_5d: float | None = None
     volume_ratio_20d: float | None = None
+    volume_trend_5d_20d: float | None = None
     distance_from_5d_high: float | None = None
     distance_from_5d_low: float | None = None
+    distance_from_20d_high: float | None = None
+    distance_from_20d_low: float | None = None
+    sma_5_20_ratio: float | None = None
+    close_vs_sma_20: float | None = None
+    up_day_ratio_5d: float | None = None
+    up_day_ratio_10d: float | None = None
+    dollar_volume: float | None = None
     atr_14_pct: float | None = None
     rsi_14: float | None = None
     rel_strength_spy_1d: float | None = None

@@ -1,15 +1,16 @@
-# Free Short-Term S&P 500 Research Agent
+# Free Short-Term Stock Research Agent
 
-Python tooling for screening S&P 500 stocks and generating short-term research notes for a 1-day to 1-week watchlist. It uses free data sources and local-only generation by default.
+Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then generating short-term research notes for a 1-day to 1-week watchlist. It uses free data sources and local-only generation by default.
 
 > Not financial advice. This project is for research only. Short-term trading is high risk.
 
 ## What It Does
 
-- Screens S&P 500 stocks with free Yahoo Finance data through `yfinance`.
+- Screens S&P 500 and Nasdaq Helsinki stocks with free Yahoo Finance data through `yfinance`.
 - Focuses on short-term candidates using 1-day to 1-week metrics.
+- Includes smaller companies down to `min_market_cap` in `config.yaml`.
 - Filters out very large companies with `max_market_cap` in `config.yaml`.
-- Scores both opportunity and risk.
+- Scores both opportunity and risk. Risk has a non-zero floor because short-term stock risk is never zero.
 - Labels setups as `momentum continuation`, `relative strength`, `breakout watch`, `overextended`, `earnings risk`, or `pullback risk`.
 - Generates Markdown and JSON proposal notes from the ranked candidates.
 
@@ -17,9 +18,15 @@ Python tooling for screening S&P 500 stocks and generating short-term research n
 
 - 1-day return
 - 5-day return
+- 10-day return
 - 20-day return
 - 5-day and 20-day relative volume
-- distance from 5-day high and low
+- 5-day volume trend versus 20-day volume
+- dollar volume for liquidity context
+- distance from 5-day and 20-day highs/lows
+- 5-day average versus 20-day average
+- close versus 20-day average
+- 5-day and 10-day up-day ratios
 - RSI 14
 - ATR 14 as percent of price
 - gap from previous close to latest open
@@ -35,6 +42,7 @@ Python tooling for screening S&P 500 stocks and generating short-term research n
 ├── requirements.txt
 ├── scripts/
 │   ├── generate_proposals.py
+│   ├── evaluate_runs.py
 │   ├── run_short_term_agent.py
 │   └── verify_ssl.py
 ├── src/
@@ -64,10 +72,36 @@ python scripts\verify_ssl.py
 
 ## Run The Short-Term Agent
 
-Run the full S&P 500 short-term screen and generate 10 proposals:
+Run the configured short-term screen and generate 10 proposals:
 
 ```powershell
 python scripts\run_short_term_agent.py
+```
+
+By default, `config.yaml` loads:
+
+```yaml
+universes:
+  - sp500
+  - finland
+```
+
+Run only the US S&P 500 universe:
+
+```powershell
+python scripts\run_short_term_agent.py --universe sp500
+```
+
+Run only the Finnish universe:
+
+```powershell
+python scripts\run_short_term_agent.py --universe finland
+```
+
+Run both explicitly:
+
+```powershell
+python scripts\run_short_term_agent.py --universe sp500 --universe finland
 ```
 
 Useful faster test:
@@ -126,7 +160,7 @@ By default, proposals are deterministic and fact-only. Optional Ollama wording c
 python scripts\generate_proposals.py --top 10 --use-ollama
 ```
 
-Unsafe or overly broad Ollama output falls back to fact-only notes.
+Ollama output must still be valid structured JSON with required metric references. If it fails those structure checks, proposal generation falls back to fact-only notes. The code no longer rejects Ollama output just because it uses specific prohibited words.
 
 ## Evaluate Old Runs
 
@@ -157,14 +191,18 @@ Edit `config.yaml` to tune:
 
 - `min_market_cap`
 - `max_market_cap`
+- enabled `universes`
 - valuation filters
 - short-term scoring weights
 
-The current default excludes companies above `$150B` market cap:
+The current default includes smaller companies above roughly `100M` market cap and excludes companies above `$150B` market cap:
 
 ```yaml
+min_market_cap: 100_000_000
 max_market_cap: 150_000_000_000
 ```
+
+For Finnish names, Yahoo usually reports market cap in the local listing currency, so treat this threshold as approximate. Smaller companies can be less liquid and may have wider spreads.
 
 ## GitHub Safety
 
@@ -185,5 +223,3 @@ git status --short
 ```
 
 Do not commit generated proposal/result files if they contain time-sensitive research output.
-
-python scripts\run_short_term_agent.py --use-ollama to run agent
