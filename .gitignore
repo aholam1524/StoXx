@@ -32,4 +32,4 @@ Thumbs.db
 .idea/
 
 # Commandline runs
-fproject/run_commands/commands.txt
+run_commands/commands.txt

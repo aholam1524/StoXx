@@ -74,7 +74,7 @@ FACTOR_TARGET_RANGES = [
 METRIC_EXPLANATIONS = [
     ("score", "Composite rank score used to order candidates."),
     ("opportunity_score", "Weighted average of factor scores before risk adjustment."),
-    ("risk_score", "Visible short-term risk flags on a 0 to 1 scale."),
+    ("risk_score", "Continuous short-term risk score from extension, volatility, liquidity, trend failure, and event components."),
     ("confidence_score", "Blend of opportunity and risk; it is not a price prediction."),
     ("return_1d/5d/10d/20d", "Recent total return over the named trading window."),
     ("rel_strength_*", "Candidate return minus SPY or QQQ return for the same window."),
@@ -109,6 +109,13 @@ def _metric_guide() -> list[str]:
         "- **Z-score (`z`):** How unusual the raw value is versus the screened universe average. Positive is above average; negative is below average.",
         "- **Weight:** The component's influence inside that factor formula.",
         "- **Regime language:** The setup describes a conditional market regime, not a price forecast.",
+        "",
+        "### Risk Target Ranges",
+        "",
+        "- **Low risk:** < 0.25. No major risk bucket is elevated, though normal short-term market risk still applies.",
+        "- **Medium risk:** 0.25-0.49. At least one risk bucket is moderately elevated and should be monitored.",
+        "- **High risk:** >= 0.50. Extension, volatility, liquidity, trend failure, or event risk is materially elevated.",
+        "- **Risk buckets:** extension, volatility, liquidity/participation, trend failure, and earnings/event timing.",
         "",
         "### Factor Target Ranges",
         "",
@@ -405,13 +412,11 @@ def _risk_observations(candidate: dict[str, Any]) -> list[str]:
     risk_level = candidate.get("risk_level")
     risk_flags = candidate.get("risk_flags") or []
 
-    for flag in risk_flags:
-        if flag != "low visible short-term risk flags":
-            risks.append(flag)
+    risks.extend(str(flag) for flag in risk_flags)
 
     if risk_score is not None:
         risks.append(
-            f"Risk score is {_num(risk_score)} ({risk_level or 'n/a'}) on a 0 to 1 scale."
+            f"Risk score is {_num(risk_score)} ({risk_level or 'n/a'}) on a continuous 0 to 1 scale."
         )
     market_cap = candidate.get("market_cap")
     dollar_volume = candidate.get("dollar_volume")

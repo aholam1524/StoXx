@@ -210,10 +210,10 @@ def _factor_weights(scoring: dict[str, Any]) -> dict[str, float]:
     if isinstance(factor_weights, dict):
         return {
             "trend": float(factor_weights.get("trend", 0.25)),
-            "momentum": float(factor_weights.get("momentum", 0.25)),
-            "relative_strength": float(factor_weights.get("relative_strength", 0.20)),
+            "momentum": float(factor_weights.get("momentum", 0.15)),
+            "relative_strength": float(factor_weights.get("relative_strength", 0.25)),
             "participation": float(factor_weights.get("participation", 0.20)),
-            "extension": float(factor_weights.get("extension", 0.10)),
+            "extension": float(factor_weights.get("extension", 0.15)),
         }
 
     # Backward-compatible defaults for older flat signal configs.
@@ -639,67 +639,160 @@ def score_short_term_candidates(
     return results
 
 
-def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
-    flags: list[str] = []
-    risk = 0.0
+def _risk_mean(values: list[float | None]) -> float:
+    present = [value for value in values if value is not None]
+    return _mean_score(present)
 
-    if row.return_1d is not None and row.return_1d > 0.08:
-        flags.append("large 1-day move")
-        risk += 0.18
-    if row.return_5d is not None and row.return_5d > 0.15:
-        flags.append("large 5-day move")
-        risk += 0.22
-    if row.return_10d is not None and row.return_10d > 0.22:
-        flags.append("large 10-day move")
-        risk += 0.15
-    if row.rsi_14 is not None and row.rsi_14 > 70:
-        flags.append("RSI above 70")
-        risk += 0.18
-    if row.volume_ratio_5d is not None and row.volume_ratio_5d > 3.0:
-        flags.append("very high 5-day relative volume")
-        risk += 0.12
-    if row.atr_14_pct is not None and row.atr_14_pct > 0.06:
-        flags.append("high ATR volatility")
-        risk += 0.12
-    if (
-        row.atr_14_pct is not None
-        and row.atr_14_pct > 0
-        and row.return_5d is not None
-        and row.return_5d / row.atr_14_pct > 3.0
-    ):
-        flags.append("5-day move stretched vs ATR")
-        risk += 0.12
-    if row.close_vs_sma_20 is not None and row.close_vs_sma_20 < -0.03:
-        flags.append("price below 20-day average")
-        risk += 0.12
-    if (
-        row.distance_from_20d_low is not None
-        and row.distance_from_20d_low > 0.25
-        and row.distance_from_20d_high is not None
-        and row.distance_from_20d_high > -0.02
-    ):
-        flags.append("extended in 20-day range")
-        risk += 0.10
-    if row.gap_1d is not None and abs(row.gap_1d) > 0.05:
-        flags.append("large opening gap")
-        risk += 0.10
-    if (
-        row.upcoming_earnings_days is not None
-        and 0 <= row.upcoming_earnings_days <= 7
-    ):
-        flags.append("earnings within 7 days")
-        risk += 0.25
+
+def _risk_component(value: float | None, low: float, high: float) -> float | None:
+    if value is None:
+        return None
+    return _scale(value, low, high)
+
+
+def _inverse_risk_component(value: float | None, low: float, high: float) -> float | None:
+    if value is None:
+        return None
+    return 1 - _scale(value, low, high)
+
+
+def _negative_risk_component(value: float | None, low: float, high: float) -> float | None:
+    if value is None:
+        return None
+    return _scale(-value, low, high)
+
+
+def _liquidity_tier_risk(tier: str | None) -> float | None:
+    if tier is None:
+        return None
+    return {
+        "high": 0.0,
+        "medium": 0.25,
+        "low": 0.55,
+        "thin": 0.85,
+    }.get(str(tier).lower())
+
+
+def _stretch_vs_atr(row: StockMetrics) -> float | None:
+    if row.atr_14_pct is None or row.atr_14_pct <= 0 or row.return_5d is None:
+        return None
+    return row.return_5d / row.atr_14_pct
+
+
+def _risk_detail(name: str, score: float, evidence: str) -> str | None:
+    if score >= 0.65:
+        return f"high {name}: {evidence}"
+    if score >= 0.30:
+        return f"moderate {name}: {evidence}"
+    return None
+
+
+def _event_risk(days: float | None) -> float:
+    if days is None or days < 0 or days > 7:
+        return 0.0
+    return _clamp(1 - days / 7, 0.25, 1.0)
+
+
+def _short_term_risk(row: StockMetrics) -> tuple[float, list[str]]:
+    stretch_vs_atr = _stretch_vs_atr(row)
+    extension_score = _risk_mean(
+        [
+            _risk_component(row.rsi_14, 60, 80),
+            _risk_component(row.return_5d, 0.04, 0.16),
+            _risk_component(row.return_10d, 0.08, 0.24),
+            _risk_component(row.return_20d, 0.10, 0.30),
+            _risk_component(row.distance_from_20d_low, 0.08, 0.28),
+            _risk_component(row.distance_from_20d_high, -0.08, 0.02),
+            _risk_component(stretch_vs_atr, 1.0, 3.5),
+        ]
+    )
+    volatility_score = _risk_mean(
+        [
+            _risk_component(row.atr_14_pct, 0.02, 0.07),
+            _risk_component(abs(row.gap_1d) if row.gap_1d is not None else None, 0.01, 0.06),
+            _risk_component(abs(row.return_1d) if row.return_1d is not None else None, 0.02, 0.08),
+        ]
+    )
+    liquidity_score = _risk_mean(
+        [
+            _liquidity_tier_risk(row.liquidity_tier),
+            _inverse_risk_component(row.dollar_volume, 5_000_000, 100_000_000),
+            _risk_component(row.volume_ratio_5d, 1.5, 4.0),
+            _inverse_risk_component(row.volume_persistence_10d, 0.2, 0.8),
+        ]
+    )
+    trend_failure_score = _risk_mean(
+        [
+            _negative_risk_component(row.close_vs_sma_20, 0.0, 0.08),
+            _negative_risk_component(row.sma_5_20_ratio, 0.0, 0.06),
+            _inverse_risk_component(row.up_day_ratio_10d, 0.3, 0.7),
+        ]
+    )
+    event_score = _event_risk(row.upcoming_earnings_days)
+
+    risk = (
+        0.33 * extension_score
+        + 0.20 * volatility_score
+        + 0.20 * liquidity_score
+        + 0.15 * trend_failure_score
+        + 0.12 * event_score
+    )
+
+    flags = [
+        flag
+        for flag in [
+            _risk_detail(
+                "extension risk",
+                extension_score,
+                (
+                    f"RSI {_fmt_num(row.rsi_14)}, 5D return {_fmt_pct(row.return_5d)}, "
+                    f"10D return {_fmt_pct(row.return_10d)}, 20D low distance {_fmt_pct(row.distance_from_20d_low)}"
+                ),
+            ),
+            _risk_detail(
+                "volatility risk",
+                volatility_score,
+                f"ATR14 {_fmt_pct(row.atr_14_pct)}, gap {_fmt_pct(row.gap_1d)}, 1D return {_fmt_pct(row.return_1d)}",
+            ),
+            _risk_detail(
+                "liquidity/participation risk",
+                liquidity_score,
+                (
+                    f"tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}, "
+                    f"5D volume {_fmt_num(row.volume_ratio_5d)}x"
+                ),
+            ),
+            _risk_detail(
+                "trend failure risk",
+                trend_failure_score,
+                (
+                    f"close vs SMA20 {_fmt_pct(row.close_vs_sma_20)}, "
+                    f"SMA 5/20 {_fmt_pct(row.sma_5_20_ratio)}, up-day ratio 10D {_fmt_pct(row.up_day_ratio_10d)}"
+                ),
+            ),
+            _risk_detail(
+                "event risk",
+                event_score,
+                f"earnings in {_fmt_num(row.upcoming_earnings_days)} days",
+            ),
+        ]
+        if flag is not None
+    ]
 
     if not flags:
-        flags.append("low visible short-term risk flags")
+        flags = [
+            "controlled volatility: ATR/gap/1D move are not elevated",
+            "no near-term earnings flag",
+            f"liquidity adequate: tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}",
+        ]
 
     return _clamp(max(risk, MIN_SHORT_TERM_RISK), 0.0, 1.0), flags
 
 
 def _risk_level(risk_score: float) -> str:
-    if risk_score < 0.20:
+    if risk_score < 0.25:
         return "low"
-    if risk_score < 0.45:
+    if risk_score < 0.50:
         return "medium"
     return "high"
 
