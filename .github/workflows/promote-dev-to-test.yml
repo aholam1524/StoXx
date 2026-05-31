@@ -1,0 +1,66 @@
+name: Promote Dev To Test
+
+on:
+  push:
+    branches:
+      - dev
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-and-open-pr:
+    name: Validate and open PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: |
+          python -m py_compile \
+            main.py \
+            scripts/generate_proposals.py \
+            scripts/run_short_term_agent.py \
+            scripts/evaluate_runs.py \
+            scripts/verify_ssl.py \
+            src/agent/ollama_client.py \
+            src/agent/short_term_proposals.py \
+            src/data/fetcher.py \
+            src/data/finland.py \
+            src/data/network.py \
+            src/data/prices.py \
+            src/data/sp500.py \
+            src/models/candidate.py \
+            src/screen/scorer.py
+
+      - name: Run smoke tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Create or update PR from dev to test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh pr list --base test --head dev --state open --json number --jq '.[0].number' | grep -q '[0-9]'; then
+            echo "An open dev -> test PR already exists."
+          else
+            gh pr create \
+              --base test \
+              --head dev \
+              --title "Promote dev to test" \
+              --body "Automated PR opened after validation passed on dev."
+          fi
