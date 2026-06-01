@@ -46,7 +46,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run S&P 500 short-term screen and local AI proposals."
     )
-    parser.add_argument("--top", type=int, default=10, help="Top screen results to save.")
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=150,
+        help="Top screen results to save for evaluation/calibration.",
+    )
     parser.add_argument(
         "--proposal-top",
         type=int,
