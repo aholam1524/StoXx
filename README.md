@@ -74,7 +74,7 @@ python scripts\verify_ssl.py
 
 ## Run The Short-Term Agent
 
-Run the configured short-term screen and generate 10 proposals:
+Run the configured short-term screen. By default this saves the top 150 candidates for evaluation/calibration and generates proposals for the top 10:
 
 ```powershell
 python scripts\run_short_term_agent.py
@@ -109,7 +109,7 @@ python scripts\run_short_term_agent.py --universe sp500 --universe finland
 Useful faster test:
 
 ```powershell
-python scripts\run_short_term_agent.py --limit 80 --top 10 --proposal-top 10
+python scripts\run_short_term_agent.py --limit 80 --top 10 --proposal-top 5
 ```
 
 Each run creates a timestamped history folder:
