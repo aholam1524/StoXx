@@ -418,6 +418,32 @@ class SmokeTests(unittest.TestCase):
                 "rank": index + 1,
                 "setup_type": "trend confirmation",
                 "risk_score": 0.1,
+                "reason_codes": ["TREND_CONSTRUCTIVE"] if index < 5 else ["OTHER_SIGNAL"],
+                "risk_flags": [],
+                "factor_scores": {"trend": 0.8},
+                "risk_details": {},
+                "forward_return_1d": 0.01,
+                "forward_return_5d": 0.02,
+                "relative_spy_forward_1d": 0.01,
+                "relative_spy_forward_5d": 0.02 if index < 5 else -0.02,
+                "relative_qqq_forward_1d": 0.01,
+                "relative_qqq_forward_5d": 0.02 if index < 5 else -0.02,
+            }
+            for index in range(8)
+        ]
+
+        suggestions = build_calibration_suggestions(evaluations, min_samples=5)
+
+        self.assertTrue(suggestions["suggested_adjustments"])
+        self.assertEqual(suggestions["suggested_adjustments"][0]["sample_size"], 5)
+        self.assertEqual(suggestions["suggested_adjustments"][0]["signal"], "reason_code:TREND_CONSTRUCTIVE")
+
+    def test_calibration_suggestions_exclude_overly_broad_groups(self) -> None:
+        evaluations = [
+            {
+                "rank": index + 1,
+                "setup_type": "trend confirmation",
+                "risk_score": 0.1,
                 "reason_codes": ["TREND_CONSTRUCTIVE"],
                 "risk_flags": [],
                 "factor_scores": {"trend": 0.8},
@@ -434,8 +460,9 @@ class SmokeTests(unittest.TestCase):
 
         suggestions = build_calibration_suggestions(evaluations, min_samples=5)
 
-        self.assertTrue(suggestions["suggested_adjustments"])
-        self.assertEqual(suggestions["suggested_adjustments"][0]["sample_size"], 5)
+        self.assertFalse(suggestions["suggested_adjustments"])
+        self.assertTrue(suggestions["broad_groups_excluded_from_suggestions"])
+        self.assertTrue(suggestions["group_stats"]["reason_code:TREND_CONSTRUCTIVE"]["excluded_from_suggestions"])
 
     def test_validate_config_compares_rescored_run_candidates(self) -> None:
         source_candidates = [
