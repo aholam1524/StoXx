@@ -30,6 +30,7 @@ import yfinance as yf  # noqa: E402
 
 BENCHMARKS = ("SPY", "QQQ")
 MIN_CALIBRATION_SAMPLES = 5
+MAX_CALIBRATION_GROUP_COVERAGE = 0.70
 STOCK_METRIC_FIELDS = {field.name for field in fields(StockMetrics)}
 
 
@@ -204,20 +205,39 @@ def build_calibration_suggestions(
     evaluations: list[dict[str, Any]],
     *,
     min_samples: int = MIN_CALIBRATION_SAMPLES,
+    max_group_coverage: float = MAX_CALIBRATION_GROUP_COVERAGE,
 ) -> dict[str, Any]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in evaluations:
         for group in _candidate_groups(item):
             groups[group].append(item)
 
-    group_stats = {
-        group: summarize_group(items)
-        for group, items in groups.items()
-        if len(items) >= min_samples
-    }
+    total_count = len(evaluations) or 1
+    group_stats: dict[str, dict[str, Any]] = {}
+    broad_groups: list[dict[str, Any]] = []
+    for group, items in groups.items():
+        if len(items) < min_samples:
+            continue
+        stats = summarize_group(items)
+        coverage = stats["count"] / total_count
+        is_broad = coverage > max_group_coverage
+        stats["coverage"] = round(coverage, 4)
+        stats["excluded_from_suggestions"] = is_broad
+        if is_broad:
+            broad_groups.append(
+                {
+                    "signal": group,
+                    "sample_size": stats["count"],
+                    "coverage": stats["coverage"],
+                    "reason": "covers too much of the evaluated run to be a useful tuning signal by itself",
+                }
+            )
+        group_stats[group] = stats
 
     suggested_adjustments: list[dict[str, Any]] = []
     for group, stats in group_stats.items():
+        if stats.get("excluded_from_suggestions"):
+            continue
         avg_rel = stats.get("avg_relative_spy_forward_5d")
         hit_rel = stats.get("hit_rate_vs_spy_5d")
         if avg_rel is None:
@@ -252,8 +272,14 @@ def build_calibration_suggestions(
             key=lambda item: abs(item["avg_relative_spy_forward_5d"]),
             reverse=True,
         ),
+        "broad_groups_excluded_from_suggestions": sorted(
+            broad_groups,
+            key=lambda item: item["coverage"],
+            reverse=True,
+        ),
         "min_samples": min_samples,
-        "note": "Use these suggestions to manually tune config.yaml after enough completed runs exist.",
+        "max_group_coverage": max_group_coverage,
+        "note": "Use these suggestions to manually tune config.yaml after enough completed runs exist. Broad groups are kept in group_stats but excluded from suggestions.",
     }
 
 
