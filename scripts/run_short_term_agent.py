@@ -16,10 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def universe_label(universes: list[str]) -> str:
     selected = set(universes)
-    if selected == {"sp500", "finland"}:
+    if selected == {"sp500", "sp400", "finland"}:
         return "all"
-    if selected == {"sp500"}:
+    if selected == {"sp500", "sp400"}:
         return "us"
+    if selected == {"sp400"}:
+        return "sp400"
     if selected == {"finland"}:
         return "finland"
     return "custom-" + "-".join(sorted(selected))
@@ -44,7 +46,7 @@ def run(command: list[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run S&P 500 short-term screen and local AI proposals."
+        description="Run configured short-term screen and local AI proposals."
     )
     parser.add_argument(
         "--top",
@@ -72,7 +74,7 @@ def main() -> int:
     parser.add_argument(
         "--universe",
         action="append",
-        choices=("sp500", "finland"),
+        choices=("sp500", "sp400", "finland"),
         help="Universe to load. Repeat for multiple. Overrides config universes.",
     )
     parser.add_argument(
