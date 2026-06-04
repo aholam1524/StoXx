@@ -119,7 +119,7 @@ def print_short_term_results(candidates: list, top_n: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Screen S&P 500 for relatively undervalued US stocks (free data)."
+        description="Screen configured stock universes with free data."
     )
     parser.add_argument(
         "--config",
@@ -148,7 +148,7 @@ def main() -> int:
     parser.add_argument(
         "--universe",
         action="append",
-        choices=("sp500", "finland"),
+        choices=("sp500", "sp400", "finland"),
         help="Universe to load. Repeat for multiple. Overrides config universes.",
     )
     parser.add_argument(
@@ -187,6 +187,7 @@ def main() -> int:
     from src.data.fetcher import fetch_many, init_yfinance_session, load_demo_metrics  # noqa: E402
     from src.data.finland import load_finland_symbols, symbol_metadata as finland_metadata  # noqa: E402
     from src.data.prices import enrich_short_term_metrics  # noqa: E402
+    from src.data.sp400 import load_sp400_symbols, symbol_metadata as sp400_metadata  # noqa: E402
     from src.data.sp500 import load_sp500_symbols  # noqa: E402
     from src.screen.scorer import score_candidates, score_short_term_candidates  # noqa: E402
 
@@ -226,6 +227,13 @@ def main() -> int:
                 }
             )
             print(f"S&P 500 universe: {len(sp500_symbols)} symbols")
+
+        if "sp400" in universes:
+            print("Loading S&P MidCap 400 universe from static list...")
+            sp400_symbols = load_sp400_symbols()
+            symbols.extend(sp400_symbols)
+            metadata.update(sp400_metadata(sp400_symbols))
+            print(f"S&P MidCap 400 universe: {len(sp400_symbols)} symbols")
 
         if "finland" in universes:
             print("Loading Finnish universe...")

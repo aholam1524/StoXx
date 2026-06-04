@@ -1,6 +1,6 @@
 # Short-Term Stock Research Agent
 
-Python tooling for screening US S&P 500 and Finnish Nasdaq Helsinki stocks, then generating short-term research notes for a 1-day to 1-week watchlist. It uses free data sources and local-only generation by default.
+Python tooling for screening US S&P 500, S&P MidCap 400, and Finnish Nasdaq Helsinki stocks, then generating short-term research notes for a 1-day to 1-week watchlist. It uses free data sources and local-only generation by default.
 
 > Not financial advice. This project is for research only. Short-term trading is high risk.
 
@@ -8,7 +8,7 @@ See `outputs/proposals.md` for a committed sample generated report. Live run his
 
 ## What It Does
 
-- Screens S&P 500 and Nasdaq Helsinki stocks with free Yahoo Finance data through `yfinance`.
+- Screens S&P 500, S&P MidCap 400, and Nasdaq Helsinki stocks with free Yahoo Finance data through `yfinance`.
 - Focuses on short-term candidates using 1-day to 1-week metrics.
 - Includes smaller companies down to `min_market_cap` in `config.yaml`.
 - Filters out very large companies with `max_market_cap` in `config.yaml`.
@@ -41,6 +41,8 @@ See `outputs/proposals.md` for a committed sample generated report. Live run his
 ├── config.yaml
 ├── main.py
 ├── requirements.txt
+├── data/
+│   └── sp400_symbols.txt
 ├── scripts/
 │   ├── generate_proposals.py
 │   ├── evaluate_runs.py
@@ -85,6 +87,7 @@ By default, `config.yaml` loads:
 ```yaml
 universes:
   - sp500
+  - sp400
   - finland
 ```
 
@@ -94,16 +97,28 @@ Run only the US S&P 500 universe:
 python scripts\run_short_term_agent.py --universe sp500
 ```
 
+Run only the S&P MidCap 400 universe:
+
+```powershell
+python scripts\run_short_term_agent.py --universe sp400
+```
+
 Run only the Finnish universe:
 
 ```powershell
 python scripts\run_short_term_agent.py --universe finland
 ```
 
-Run both explicitly:
+Run the US universes explicitly:
 
 ```powershell
-python scripts\run_short_term_agent.py --universe sp500 --universe finland
+python scripts\run_short_term_agent.py --universe sp500 --universe sp400
+```
+
+Run all universes explicitly:
+
+```powershell
+python scripts\run_short_term_agent.py --universe sp500 --universe sp400 --universe finland
 ```
 
 Useful faster test:
@@ -124,7 +139,7 @@ outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/
 └── calibration_suggestions.json
 ```
 
-The suffix shows the screened universe: `_all`, `_us`, or `_finland`.
+The suffix shows the screened universe: `_all`, `_us`, `_sp400`, `_finland`, or `_custom-...`.
 
 The newest run is also copied to:
 

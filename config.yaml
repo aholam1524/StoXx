@@ -1,11 +1,12 @@
 universe: sp500
 universes:
   - sp500
+  - sp400
   - finland
 top_n: 10
 
-# Skip tickers below this market cap (USD)
-# Lower values include smaller companies, which can be less liquid and riskier.
+# Skip tickers below this market cap (USD).
+# This is low enough to include S&P MidCap 400 names while still filtering very small/liquid names.
 # Finnish names use Yahoo's local market-cap currency, so treat this as approximate.
 min_market_cap: 100_000_000
 
