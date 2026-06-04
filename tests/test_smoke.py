@@ -9,6 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.agent.short_term_proposals import _deterministic_proposal
+from src.data.sp400 import load_sp400_symbols
 from src.models.candidate import StockMetrics
 from src.screen.scorer import _percentile_rank, _short_term_risk, score_short_term_candidates
 from scripts.evaluate_runs import (
@@ -20,6 +21,14 @@ from scripts.evaluate_runs import (
 
 
 class SmokeTests(unittest.TestCase):
+    def test_load_sp400_symbols_from_static_list(self) -> None:
+        symbols = load_sp400_symbols()
+
+        self.assertEqual(len(symbols), 400)
+        self.assertIn("AA", symbols)
+        self.assertIn("MOG-A", symbols)
+        self.assertNotIn("MOG.A", symbols)
+
     def test_short_term_risk_has_nonzero_floor(self) -> None:
         row = StockMetrics(
             symbol="TEST",

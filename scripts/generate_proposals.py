@@ -19,10 +19,12 @@ from src.agent.short_term_proposals import generate_short_term_proposals  # noqa
 
 def universe_label(universes: list[str]) -> str:
     selected = set(universes)
-    if selected == {"sp500", "finland"}:
+    if selected == {"sp500", "sp400", "finland"}:
         return "all"
-    if selected == {"sp500"}:
+    if selected == {"sp500", "sp400"}:
         return "us"
+    if selected == {"sp400"}:
+        return "sp400"
     if selected == {"finland"}:
         return "finland"
     if selected:
