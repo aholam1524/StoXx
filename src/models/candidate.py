@@ -72,6 +72,10 @@ class StockMetrics:
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
+    final_rank_score: float | None = None
+    entry_quality_score: float | None = None
+    entry_quality_flags: list[str] | None = None
+    entry_quality_details: dict[str, Any] | None = None
     reason_codes: list[str] | None = None
     factor_scores: dict[str, float] | None = None
     factor_summaries: list[str] | None = None
@@ -157,6 +161,10 @@ class ScoredCandidate:
     expected_direction: str | None = None
     expected_window: str | None = None
     confidence_score: float | None = None
+    final_rank_score: float | None = None
+    entry_quality_score: float | None = None
+    entry_quality_flags: list[str] | None = None
+    entry_quality_details: dict[str, Any] | None = None
     reason_codes: list[str] | None = None
     factor_scores: dict[str, float] | None = None
     factor_summaries: list[str] | None = None

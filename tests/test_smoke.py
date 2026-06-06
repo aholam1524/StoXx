@@ -14,7 +14,9 @@ from src.models.candidate import StockMetrics
 from src.screen.scorer import _percentile_rank, _short_term_risk, score_short_term_candidates
 from scripts.evaluate_runs import (
     _validate_config_on_run,
+    aggregate_paper_trades,
     bucket_risk,
+    build_paper_trade_summary,
     build_calibration_suggestions,
     summarize_group,
 )
@@ -269,6 +271,17 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("MOMENTUM_POSITIVE", candidate.reason_codes)
         self.assertNotIn("MOMENTUM_5D_POSITIVE", candidate.reason_codes)
         self.assertLessEqual(len(candidate.reason_codes or []), 6)
+        self.assertIsNotNone(candidate.final_rank_score)
+        self.assertIsNotNone(candidate.entry_quality_score)
+        self.assertIsNotNone(candidate.entry_quality_details)
+        assert candidate.final_rank_score is not None
+        assert candidate.entry_quality_score is not None
+        assert candidate.entry_quality_details is not None
+        self.assertGreaterEqual(candidate.final_rank_score, 0.0)
+        self.assertLessEqual(candidate.final_rank_score, 1.0)
+        self.assertGreaterEqual(candidate.entry_quality_score, 0.0)
+        self.assertLessEqual(candidate.entry_quality_score, 1.0)
+        self.assertIn("checks", candidate.entry_quality_details)
 
     def test_near_threshold_extension_gets_above_floor_risk(self) -> None:
         row = StockMetrics(
@@ -420,6 +433,52 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(summary["hit_rate_vs_spy_5d"], 0.5)
         self.assertEqual(summary["downside_rate_5d"], 0.5)
         self.assertAlmostEqual(summary["median_forward_return_5d"], 0.0)
+
+    def test_paper_trade_summary_tracks_portfolio_metrics(self) -> None:
+        evaluations = [
+            {
+                "rank": index + 1,
+                "symbol": f"STK{index}",
+                "risk_score": 0.10,
+                "entry_quality_score": 0.80 if index < 10 else 0.40,
+                "forward_return_1d": 0.01 if index % 2 == 0 else -0.01,
+                "forward_return_3d": 0.02 if index % 2 == 0 else -0.01,
+                "forward_return_5d": 0.03 if index % 2 == 0 else -0.02,
+            }
+            for index in range(12)
+        ]
+        benchmark_forward = {
+            "SPY": {"1d": 0.001, "3d": 0.002, "5d": 0.003},
+            "QQQ": {"1d": 0.002, "3d": 0.003, "5d": 0.004},
+        }
+
+        paper = build_paper_trade_summary(
+            evaluations,
+            benchmark_forward,
+            commission_rate=0.001,
+            tax_rate=0.30,
+        )
+        aggregate = aggregate_paper_trades(
+            [
+                {
+                    "generated_at": "2026-06-01T00:00:00+00:00",
+                    "paper_trade": paper,
+                },
+                {
+                    "generated_at": "2026-06-02T00:00:00+00:00",
+                    "paper_trade": paper,
+                },
+            ]
+        )
+
+        horizon = paper["strategies"]["top_10"]["horizons"]["5d"]
+        self.assertEqual(horizon["positions"], 10)
+        self.assertEqual(horizon["win_rate"], 0.5)
+        self.assertLess(horizon["equal_weight_return"], horizon["gross_equal_weight_return"])
+        self.assertGreater(horizon["average_commission_cost"], 0)
+        self.assertGreater(horizon["average_tax_cost"], 0)
+        self.assertIn("max_drawdown", aggregate["strategies"]["top_10"]["horizons"]["5d"])
+        self.assertEqual(aggregate["strategies"]["top_10"]["average_turnover"], 0.0)
 
     def test_calibration_suggestions_require_sample_size(self) -> None:
         evaluations = [
