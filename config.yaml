@@ -81,6 +81,17 @@ short_term_scoring:
     liquidity: 0.20
     trend_failure: 0.15
     event: 0.12
+  risk_adjusted_ranking:
+    risk_penalty_weight: 0.35
+    entry_penalty_weight: 0.20
+  entry_quality:
+    close_location_1d_min: 0.55
+    close_location_5d_min: 0.50
+    max_return_1d: 0.08
+    max_gap_1d: 0.05
+    max_rsi_14: 78
+    max_stretch_vs_atr: 3.0
+    min_dollar_volume: 10_000_000
   risk_thresholds:
     extension:
       rsi_14: [60, 80]

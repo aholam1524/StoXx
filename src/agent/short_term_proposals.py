@@ -72,10 +72,11 @@ FACTOR_TARGET_RANGES = [
 ]
 
 METRIC_EXPLANATIONS = [
-    ("score", "Composite rank score used to order candidates."),
+    ("score/final_rank_score", "Risk-adjusted rank score used to order candidates after opportunity, risk, and entry-quality penalties."),
     ("opportunity_score", "Weighted average of factor scores before risk adjustment."),
     ("risk_score", "Continuous short-term risk score from extension, volatility, liquidity, trend failure, and event components."),
     ("risk_details", "Component-level breakdown of the risk score, including weights, contributions, and metric scores."),
+    ("entry_quality_score", "Entry timing quality from extension, close-location, gap/fade, distribution, and liquidity checks."),
     ("confidence_score", "Blend of opportunity and risk; it is not a price prediction."),
     ("return_1d/5d/10d/20d", "Recent total return over the named trading window."),
     ("rel_strength_*", "Candidate return minus SPY or QQQ return for the same window."),
@@ -175,6 +176,7 @@ def _factor_summary_block(candidate: dict[str, Any]) -> list[str]:
         summaries = ["Factor model summary is unavailable for this candidate."]
     return [
         "**Quick scorecard:**",
+        f"- **Final rank:** {_num(candidate.get('final_rank_score') or candidate.get('score'))}; opportunity {_num(candidate.get('opportunity_score'))}; risk {_num(candidate.get('risk_score'))}; entry quality {_num(candidate.get('entry_quality_score'))}.",
         f"- **Factor scores:** {_factor_score_line(candidate)}.",
         "- **Read this as:** higher trend/momentum/relative strength/participation is better; higher extension control means less stretched.",
         *[f"- {summary}" for summary in summaries],
@@ -351,7 +353,7 @@ def _metric_block(candidate: dict[str, Any]) -> list[str]:
     return [
         "**Metrics:**",
         f"- **Snapshot:** {candidate.get('market') or 'n/a'} / {candidate.get('exchange') or 'n/a'}; price {_num(candidate.get('current_price'))}; market cap {_market_cap(candidate.get('market_cap'))}.",
-        f"- **Scores:** rank {_num(candidate.get('score'))}; opportunity {_num(candidate.get('opportunity_score'))}; risk {_num(candidate.get('risk_score'))} ({candidate.get('risk_level') or 'n/a'}); confidence {_num(candidate.get('confidence_score'))}.",
+        f"- **Scores:** final rank {_num(candidate.get('final_rank_score') or candidate.get('score'))}; opportunity {_num(candidate.get('opportunity_score'))}; risk {_num(candidate.get('risk_score'))} ({candidate.get('risk_level') or 'n/a'}); entry quality {_num(candidate.get('entry_quality_score'))}; confidence {_num(candidate.get('confidence_score'))}.",
         f"- **Regime:** {candidate.get('expected_direction') or 'n/a'} over {candidate.get('expected_window') or 'n/a'}; setup {candidate.get('setup_type') or 'n/a'}.",
         "",
         "**Price action:**",
@@ -567,12 +569,19 @@ def _risk_observations(candidate: dict[str, Any]) -> list[str]:
     risk_score = candidate.get("risk_score")
     risk_level = candidate.get("risk_level")
     risk_flags = candidate.get("risk_flags") or []
+    entry_quality_score = candidate.get("entry_quality_score")
+    entry_quality_flags = candidate.get("entry_quality_flags") or []
 
     risks.extend(str(flag) for flag in risk_flags)
+    risks.extend(str(flag) for flag in entry_quality_flags if str(flag).startswith("entry check failed:"))
 
     if risk_score is not None:
         risks.append(
             f"Risk score is {_num(risk_score)} ({risk_level or 'n/a'}) on a continuous 0 to 1 scale."
+        )
+    if entry_quality_score is not None:
+        risks.append(
+            f"Entry quality score is {_num(entry_quality_score)} from extension, close-location, fade/distribution, and liquidity checks."
         )
     market_cap = candidate.get("market_cap")
     dollar_volume = candidate.get("dollar_volume")
@@ -725,6 +734,8 @@ def _ollama_payload_is_valid(candidate: dict[str, Any], payload: dict[str, Any])
         "rsi_14",
         "atr_14_pct",
         "risk_score",
+        "final_rank_score",
+        "entry_quality_score",
         "confidence_score",
     }
     if not required_refs.issubset(metric_refs):
@@ -838,7 +849,7 @@ Required JSON schema:
   "plan": ["2-4 bullets focused on what to watch"],
   "risks": ["2-4 bullets using only allowed risk notes"],
   "verdict": "one cautious sentence",
-  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "up_volume_ratio_10d", "volume_acceleration_5d_20d", "price_volume_efficiency_5d", "distribution_day_count_10d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sector_relative_strength_10d", "sector_relative_strength_20d", "market_regime_score", "close_location_20d", "failed_gap_or_fade", "rs_decoupling", "distribution_pressure", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "confidence_score"]
+  "metric_refs": ["return_1d", "return_5d", "return_10d", "return_20d", "volume_ratio_5d", "volume_ratio_20d", "volume_trend_5d_20d", "volume_persistence_5d", "volume_persistence_10d", "volume_z_score_20d", "up_volume_ratio_10d", "volume_acceleration_5d_20d", "price_volume_efficiency_5d", "distribution_day_count_10d", "liquidity_tier", "rel_strength_spy_5d", "rel_strength_spy_10d", "rel_strength_spy_20d", "rel_strength_qqq_5d", "rel_strength_qqq_10d", "rel_strength_qqq_20d", "sector_relative_strength_10d", "sector_relative_strength_20d", "market_regime_score", "close_location_20d", "failed_gap_or_fade", "rs_decoupling", "distribution_pressure", "sma_5_20_ratio", "close_vs_sma_20", "up_day_ratio_5d", "rsi_14", "atr_14_pct", "risk_score", "final_rank_score", "entry_quality_score", "confidence_score"]
 }}
 """.strip()
 
@@ -941,9 +952,11 @@ SUMMARY_COLUMNS = [
     "market",
     "exchange",
     "score",
+    "final_rank_score",
     "opportunity_score",
     "risk_score",
     "risk_level",
+    "entry_quality_score",
     "confidence_score",
     "expected_direction",
     "expected_window",
@@ -1002,6 +1015,8 @@ SUMMARY_COLUMNS = [
     "distribution_pressure",
     "risk_flags",
     "risk_details",
+    "entry_quality_flags",
+    "entry_quality_details",
     "reason_codes",
     "factor_scores",
     "factor_summaries",
@@ -1021,6 +1036,8 @@ def write_metrics_summary(candidates: list[dict[str, Any]], output_path: Path) -
             row["rank"] = rank
             row["risk_flags"] = "; ".join(candidate.get("risk_flags") or [])
             row["risk_details"] = json.dumps(candidate.get("risk_details") or {}, sort_keys=True)
+            row["entry_quality_flags"] = "; ".join(candidate.get("entry_quality_flags") or [])
+            row["entry_quality_details"] = json.dumps(candidate.get("entry_quality_details") or {}, sort_keys=True)
             row["reason_codes"] = "; ".join(candidate.get("reason_codes") or [])
             row["factor_scores"] = json.dumps(candidate.get("factor_scores") or {}, sort_keys=True)
             row["factor_summaries"] = "; ".join(candidate.get("factor_summaries") or [])

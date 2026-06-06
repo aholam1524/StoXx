@@ -331,6 +331,21 @@ RISK_THRESHOLD_DEFAULTS = {
     },
 }
 
+ENTRY_QUALITY_DEFAULTS = {
+    "close_location_1d_min": 0.55,
+    "close_location_5d_min": 0.50,
+    "max_return_1d": 0.08,
+    "max_gap_1d": 0.05,
+    "max_rsi_14": 78.0,
+    "max_stretch_vs_atr": 3.0,
+    "min_dollar_volume": 10_000_000.0,
+}
+
+RISK_ADJUSTED_RANKING_DEFAULTS = {
+    "risk_penalty_weight": 0.35,
+    "entry_penalty_weight": 0.20,
+}
+
 INVERTED_COMPONENTS = {
     "atr_14_pct",
     "stretch_vs_atr",
@@ -634,7 +649,16 @@ def score_short_term_candidates(
             risk_score,
         )
         reason_codes = _factor_reasons(factor_scores, risk_score, row)
-        score = 0.75 * opportunity_score + 0.25 * (1 - risk_score)
+        entry_quality_score, entry_quality_flags, entry_quality_details = _entry_quality_model(
+            row,
+            scoring,
+        )
+        score = _final_rank_score(
+            opportunity_score,
+            risk_score,
+            entry_quality_score,
+            scoring,
+        )
         setup_type = _setup_type(row, risk_score)
         setup_details = _setup_details(row, factor_scores, risk_score, lifecycle_details)
 
@@ -711,6 +735,10 @@ def score_short_term_candidates(
                 expected_direction=expected_direction,
                 expected_window="1d-5d",
                 confidence_score=round(confidence_score, 4),
+                final_rank_score=round(score, 4),
+                entry_quality_score=entry_quality_score,
+                entry_quality_flags=entry_quality_flags,
+                entry_quality_details=entry_quality_details,
                 reason_codes=reason_codes,
                 factor_scores=factor_scores,
                 factor_summaries=factor_summaries,
@@ -773,6 +801,26 @@ def _configured_risk_thresholds(scoring: dict[str, Any] | None) -> dict[str, dic
     return thresholds
 
 
+def _configured_entry_quality(scoring: dict[str, Any] | None) -> dict[str, float]:
+    thresholds = ENTRY_QUALITY_DEFAULTS.copy()
+    configured = (scoring or {}).get("entry_quality")
+    if isinstance(configured, dict):
+        for name in thresholds:
+            if name in configured:
+                thresholds[name] = float(configured[name])
+    return thresholds
+
+
+def _configured_risk_adjusted_ranking(scoring: dict[str, Any] | None) -> dict[str, float]:
+    weights = RISK_ADJUSTED_RANKING_DEFAULTS.copy()
+    configured = (scoring or {}).get("risk_adjusted_ranking")
+    if isinstance(configured, dict):
+        for name in weights:
+            if name in configured:
+                weights[name] = float(configured[name])
+    return weights
+
+
 def _risk_range(
     thresholds: dict[str, dict[str, tuple[float, float]]],
     bucket: str,
@@ -814,6 +862,122 @@ def _stretch_vs_atr(row: StockMetrics) -> float | None:
     if row.atr_14_pct is None or row.atr_14_pct <= 0 or row.return_5d is None:
         return None
     return row.return_5d / row.atr_14_pct
+
+
+def _entry_check(name: str, passed: bool, evidence: str, weight: float) -> dict[str, Any]:
+    return {
+        "name": name,
+        "passed": passed,
+        "evidence": evidence,
+        "weight": weight,
+        "contribution": weight if passed else 0.0,
+    }
+
+
+def _entry_quality_model(
+    row: StockMetrics,
+    scoring: dict[str, Any] | None = None,
+) -> tuple[float, list[str], dict[str, Any]]:
+    thresholds = _configured_entry_quality(scoring)
+    stretch_vs_atr = _stretch_vs_atr(row)
+
+    not_intraday_extended = not (
+        (row.return_1d is not None and row.return_1d > thresholds["max_return_1d"])
+        or (row.gap_1d is not None and row.gap_1d > thresholds["max_gap_1d"])
+        or (row.rsi_14 is not None and row.rsi_14 > thresholds["max_rsi_14"])
+        or (stretch_vs_atr is not None and stretch_vs_atr > thresholds["max_stretch_vs_atr"])
+    )
+    constructive_close = (
+        row.close_location_1d is not None
+        and row.close_location_1d >= thresholds["close_location_1d_min"]
+        and (
+            row.close_location_5d is None
+            or row.close_location_5d >= thresholds["close_location_5d_min"]
+        )
+    )
+    no_gap_exhaustion = not (
+        row.failed_gap_or_fade
+        or (
+            row.gap_1d is not None
+            and row.gap_1d > thresholds["max_gap_1d"] * 0.80
+            and row.close_location_1d is not None
+            and row.close_location_1d < thresholds["close_location_1d_min"]
+        )
+    )
+    no_distribution = not bool(row.distribution_pressure)
+    adequate_liquidity = (
+        row.dollar_volume is not None
+        and row.dollar_volume >= thresholds["min_dollar_volume"]
+        and str(row.liquidity_tier or "").lower() != "thin"
+    )
+
+    checks = [
+        _entry_check(
+            "not_intraday_extended",
+            not_intraday_extended,
+            (
+                f"1D {_fmt_pct(row.return_1d)}, gap {_fmt_pct(row.gap_1d)}, "
+                f"RSI {_fmt_num(row.rsi_14)}, stretch/ATR {_fmt_num(stretch_vs_atr)}"
+            ),
+            0.25,
+        ),
+        _entry_check(
+            "constructive_close_location",
+            constructive_close,
+            (
+                f"1D close location {_fmt_pct(row.close_location_1d)}, "
+                f"5D close location {_fmt_pct(row.close_location_5d)}"
+            ),
+            0.20,
+        ),
+        _entry_check(
+            "no_gap_exhaustion_or_fade",
+            no_gap_exhaustion,
+            f"failed gap/fade {row.failed_gap_or_fade}, gap {_fmt_pct(row.gap_1d)}",
+            0.20,
+        ),
+        _entry_check(
+            "no_distribution_pressure",
+            no_distribution,
+            f"distribution pressure {row.distribution_pressure}",
+            0.20,
+        ),
+        _entry_check(
+            "adequate_liquidity",
+            adequate_liquidity,
+            f"tier {row.liquidity_tier or 'n/a'}, dollar volume {_fmt_money(row.dollar_volume)}",
+            0.15,
+        ),
+    ]
+    weight_sum = sum(check["weight"] for check in checks) or 1.0
+    score = _clamp(sum(check["contribution"] for check in checks) / weight_sum, 0.0, 1.0)
+    flags = [
+        f"entry check failed: {check['name']} ({check['evidence']})"
+        for check in checks
+        if not check["passed"]
+    ]
+    if not flags:
+        flags = ["entry quality acceptable: extension, close location, distribution, and liquidity checks passed"]
+    return round(score, 4), flags, {
+        "score": round(score, 4),
+        "thresholds": {name: round(value, 4) for name, value in thresholds.items()},
+        "checks": checks,
+    }
+
+
+def _final_rank_score(
+    opportunity_score: float,
+    risk_score: float,
+    entry_quality_score: float,
+    scoring: dict[str, Any] | None = None,
+) -> float:
+    weights = _configured_risk_adjusted_ranking(scoring)
+    score = (
+        opportunity_score
+        - weights["risk_penalty_weight"] * risk_score
+        - weights["entry_penalty_weight"] * (1 - entry_quality_score)
+    )
+    return _clamp(score, 0.0, 1.0)
 
 
 def _risk_detail(name: str, score: float, evidence: str) -> str | None:
