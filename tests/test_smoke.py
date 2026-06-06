@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import sys
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.agent.short_term_proposals import _deterministic_proposal
+from src.agent.short_term_proposals import _deterministic_proposal, _news_context_block, generate_short_term_proposals
+from src.data.news import classify_sentiment
 from src.data.sp400 import load_sp400_symbols
 from src.models.candidate import StockMetrics
 from src.screen.scorer import _percentile_rank, _short_term_risk, score_short_term_candidates
@@ -30,6 +33,42 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("AA", symbols)
         self.assertIn("MOG-A", symbols)
         self.assertNotIn("MOG.A", symbols)
+
+    def test_news_sentiment_classifier_uses_finance_keywords(self) -> None:
+        positive = classify_sentiment("Company raises guidance after earnings beat")
+        negative = classify_sentiment("Analyst downgrade follows lawsuit investigation")
+
+        self.assertEqual(positive["sentiment"], "positive")
+        self.assertIn("guidance_positive", positive["flags"])
+        self.assertEqual(negative["sentiment"], "negative")
+        self.assertIn("analyst_downgrade", negative["flags"])
+
+    def test_news_context_block_renders_headlines(self) -> None:
+        lines = _news_context_block(
+            {
+                "news_context": {
+                    "status": "ok",
+                    "overall_sentiment": "mixed",
+                    "counts": {"positive": 1, "negative": 1, "neutral": 0, "mixed": 0},
+                    "flags": ["earnings_positive", "analyst_downgrade"],
+                    "headlines": [
+                        {
+                            "title": "Company raises guidance",
+                            "publisher": "Reuters",
+                            "published_at": "2026-06-06T00:00:00+00:00",
+                            "link": "https://example.com/news",
+                            "sentiment": "positive",
+                        }
+                    ],
+                }
+            }
+        )
+
+        rendered = "\n".join(lines)
+        self.assertIn("**News context:**", rendered)
+        self.assertIn("Headline sentiment: mixed", rendered)
+        self.assertIn("Company raises guidance", rendered)
+        self.assertIn("headline sentiment is context only", rendered)
 
     def test_short_term_risk_has_nonzero_floor(self) -> None:
         row = StockMetrics(
@@ -162,6 +201,49 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("pct_rank(return_20d)", proposal)
         self.assertIn("**Regime:** bullish regime if conditions persist", proposal)
         self.assertNotIn("**Prediction:** up", proposal)
+
+    def test_generate_proposals_attaches_news_without_reordering(self) -> None:
+        def fake_news(symbol: str, *, limit: int = 5, days: int | None = 7) -> dict:
+            return {
+                "symbol": symbol,
+                "status": "ok",
+                "overall_sentiment": "positive",
+                "counts": {"positive": 1, "negative": 0, "neutral": 0, "mixed": 0},
+                "flags": ["deal_or_partnership"],
+                "headlines": [
+                    {
+                        "title": f"{symbol} wins contract",
+                        "publisher": "TestWire",
+                        "published_at": "2026-06-06T00:00:00+00:00",
+                        "link": None,
+                        "sentiment": "positive",
+                    }
+                ],
+            }
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_path = root / "screen_results.json"
+            input_path.write_text(
+                '{"candidates": [{"symbol": "AAA", "name": "Alpha"}, {"symbol": "BBB", "name": "Beta"}]}',
+                encoding="utf-8",
+            )
+
+            with patch("src.agent.short_term_proposals.fetch_symbol_news", side_effect=fake_news):
+                proposals = generate_short_term_proposals(
+                    input_path=input_path,
+                    output_markdown_path=root / "proposals.md",
+                    output_json_path=root / "proposals.json",
+                    output_summary_path=root / "metrics_summary.csv",
+                    model="test-model",
+                    top=2,
+                    use_ollama=False,
+                    include_news=True,
+                )
+
+            self.assertEqual([item["symbol"] for item in proposals], ["AAA", "BBB"])
+            self.assertEqual(proposals[0]["news_context"]["overall_sentiment"], "positive")
+            self.assertIn("AAA wins contract", (root / "proposals.md").read_text(encoding="utf-8"))
 
     def test_percentile_rank_is_bounded_and_monotonic(self) -> None:
         values = [0.01, 0.03, 0.05, 0.08]
