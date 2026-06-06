@@ -41,16 +41,24 @@ def _safe_float(value: object) -> float | None:
 
 
 def _rsi(closes: pd.Series, window: int = 14) -> float | None:
-    changes = closes.diff().dropna()
-    if len(changes) < window:
+    if len(closes) < window + 1:
         return None
 
-    gains = changes.clip(lower=0).tail(window).mean()
-    losses = -changes.clip(upper=0).tail(window).mean()
-    if losses == 0:
-        return 100.0 if gains > 0 else None
+    delta = closes.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
 
-    rs = gains / losses
+    # Wilder's Smoothing: EMA with alpha = 1/window
+    avg_gain = gain.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+
+    latest_gain = avg_gain.iloc[-1]
+    latest_loss = avg_loss.iloc[-1]
+
+    if latest_loss == 0:
+        return 100.0 if latest_gain > 0 else None
+
+    rs = latest_gain / latest_loss
     return _safe_float(100 - (100 / (1 + rs)))
 
 
@@ -114,7 +122,11 @@ def _atr_pct(frame: pd.DataFrame, window: int = 14) -> float | None:
         ],
         axis=1,
     ).max(axis=1)
-    atr = _safe_float(true_range.tail(window).mean())
+
+    # Wilder's Smoothing for ATR: EMA with alpha = 1/window
+    atr_series = true_range.ewm(alpha=1 / window, min_periods=window, adjust=False).mean()
+    atr = _safe_float(atr_series.iloc[-1])
+
     latest_close = _safe_float(closes.iloc[-1])
     if atr is None or latest_close is None or latest_close <= 0:
         return None
@@ -329,31 +341,31 @@ def enrich_short_term_metrics(
         if row.return_1d is not None:
             spy_1d = benchmark_returns.get("SPY", {}).get("1d")
             qqq_1d = benchmark_returns.get("QQQ", {}).get("1d")
-            if spy_1d is not None:
-                row.rel_strength_spy_1d = row.return_1d - spy_1d
-            if qqq_1d is not None:
-                row.rel_strength_qqq_1d = row.return_1d - qqq_1d
+            if spy_1d is not None and spy_1d > -1:
+                row.rel_strength_spy_1d = (1 + row.return_1d) / (1 + spy_1d) - 1
+            if qqq_1d is not None and qqq_1d > -1:
+                row.rel_strength_qqq_1d = (1 + row.return_1d) / (1 + qqq_1d) - 1
         if row.return_5d is not None:
             spy_5d = benchmark_returns.get("SPY", {}).get("5d")
             qqq_5d = benchmark_returns.get("QQQ", {}).get("5d")
-            if spy_5d is not None:
-                row.rel_strength_spy_5d = row.return_5d - spy_5d
-            if qqq_5d is not None:
-                row.rel_strength_qqq_5d = row.return_5d - qqq_5d
+            if spy_5d is not None and spy_5d > -1:
+                row.rel_strength_spy_5d = (1 + row.return_5d) / (1 + spy_5d) - 1
+            if qqq_5d is not None and qqq_5d > -1:
+                row.rel_strength_qqq_5d = (1 + row.return_5d) / (1 + qqq_5d) - 1
         if row.return_10d is not None:
             spy_10d = benchmark_returns.get("SPY", {}).get("10d")
             qqq_10d = benchmark_returns.get("QQQ", {}).get("10d")
-            if spy_10d is not None:
-                row.rel_strength_spy_10d = row.return_10d - spy_10d
-            if qqq_10d is not None:
-                row.rel_strength_qqq_10d = row.return_10d - qqq_10d
+            if spy_10d is not None and spy_10d > -1:
+                row.rel_strength_spy_10d = (1 + row.return_10d) / (1 + spy_10d) - 1
+            if qqq_10d is not None and qqq_10d > -1:
+                row.rel_strength_qqq_10d = (1 + row.return_10d) / (1 + qqq_10d) - 1
         if row.return_20d is not None:
             spy_20d = benchmark_returns.get("SPY", {}).get("20d")
             qqq_20d = benchmark_returns.get("QQQ", {}).get("20d")
-            if spy_20d is not None:
-                row.rel_strength_spy_20d = row.return_20d - spy_20d
-            if qqq_20d is not None:
-                row.rel_strength_qqq_20d = row.return_20d - qqq_20d
+            if spy_20d is not None and spy_20d > -1:
+                row.rel_strength_spy_20d = (1 + row.return_20d) / (1 + spy_20d) - 1
+            if qqq_20d is not None and qqq_20d > -1:
+                row.rel_strength_qqq_20d = (1 + row.return_20d) / (1 + qqq_20d) - 1
         if row.return_5d is not None and row.return_10d is not None:
             row.momentum_acceleration_5d_10d = row.return_5d - (row.return_10d / 2)
         if row.rel_strength_spy_5d is not None and row.rel_strength_spy_20d is not None:
@@ -386,15 +398,15 @@ def enrich_short_term_metrics(
         sector_bucket = sector_returns.get(row.sector, {})
         if row.return_5d is not None and sector_bucket.get("5d"):
             sector_median = _safe_float(pd.Series(sector_bucket["5d"]).median())
-            if sector_median is not None:
-                row.sector_relative_strength_5d = row.return_5d - sector_median
+            if sector_median is not None and sector_median > -1:
+                row.sector_relative_strength_5d = (1 + row.return_5d) / (1 + sector_median) - 1
         if row.return_10d is not None and sector_bucket.get("10d"):
             sector_median = _safe_float(pd.Series(sector_bucket["10d"]).median())
-            if sector_median is not None:
-                row.sector_relative_strength_10d = row.return_10d - sector_median
+            if sector_median is not None and sector_median > -1:
+                row.sector_relative_strength_10d = (1 + row.return_10d) / (1 + sector_median) - 1
         if row.return_20d is not None and sector_bucket.get("20d"):
             sector_median = _safe_float(pd.Series(sector_bucket["20d"]).median())
-            if sector_median is not None:
-                row.sector_relative_strength_20d = row.return_20d - sector_median
+            if sector_median is not None and sector_median > -1:
+                row.sector_relative_strength_20d = (1 + row.return_20d) / (1 + sector_median) - 1
 
     return rows
