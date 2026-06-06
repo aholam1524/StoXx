@@ -38,6 +38,7 @@ jobs:
             src/agent/short_term_proposals.py \
             src/data/fetcher.py \
             src/data/finland.py \
+            src/data/news.py \
             src/data/network.py \
             src/data/prices.py \
             src/data/sp400.py \

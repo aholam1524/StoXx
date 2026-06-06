@@ -82,6 +82,23 @@ def main() -> int:
         action="store_true",
         help="Try local Ollama wording; unsafe outputs fall back to fact-only notes.",
     )
+    parser.add_argument(
+        "--no-news",
+        action="store_true",
+        help="Skip Yahoo Finance news context in proposals.",
+    )
+    parser.add_argument(
+        "--news-limit",
+        type=int,
+        default=5,
+        help="Maximum recent Yahoo Finance headlines per proposal candidate.",
+    )
+    parser.add_argument(
+        "--news-days",
+        type=int,
+        default=7,
+        help="Only include Yahoo Finance headlines from the last N days.",
+    )
     args = parser.parse_args()
     selected_universes = args.universe or configured_universes()
     run_dir = ROOT / "outputs" / "runs" / run_id(selected_universes)
@@ -118,6 +135,10 @@ def main() -> int:
     ]
     if args.use_ollama:
         proposal_cmd.append("--use-ollama")
+    if args.no_news:
+        proposal_cmd.append("--no-news")
+    proposal_cmd.extend(["--news-limit", str(args.news_limit)])
+    proposal_cmd.extend(["--news-days", str(args.news_days)])
     run(proposal_cmd)
     print(f"\nDone. Run folder: {run_dir}")
     print("Latest copies are in outputs/latest/.")

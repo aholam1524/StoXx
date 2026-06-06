@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from src.agent.ollama_client import OllamaClient
+from src.data.news import fetch_symbol_news
 
 DISCLAIMER = (
     "Not financial advice. Short-term trading is high risk. "
@@ -107,6 +108,7 @@ METRIC_EXPLANATIONS = [
     ("distribution_pressure", "True when multiple high-volume down days suggest distribution."),
     ("setup_details", "Setup-specific scores used to diagnose which setup style the candidate best fits."),
     ("lifecycle_details", "Heuristic phase/regime diagnostics such as ignition, expansion, euphoria, exhaustion, and reversal."),
+    ("news_context", "Report-only Yahoo Finance headline sentiment and catalyst/risk flags; not used for ranking or scoring."),
     ("upcoming_earnings_days", "Days until earnings; negative means the date is already past."),
 ]
 
@@ -346,6 +348,63 @@ def _lifecycle_details_block(candidate: dict[str, Any]) -> list[str]:
         )
     if details.get("note"):
         lines.append(f"- Note: {details.get('note')}")
+    return lines
+
+
+def _headline_age(published_at: str | None) -> str:
+    if not published_at:
+        return "date n/a"
+    try:
+        parsed = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except ValueError:
+        return "date n/a"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    days = max(0, (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).days)
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "1d ago"
+    return f"{days}d ago"
+
+
+def _news_context_block(candidate: dict[str, Any]) -> list[str]:
+    if "news_context" not in candidate:
+        return []
+    context = candidate.get("news_context") or {}
+    if not isinstance(context, dict):
+        return []
+    status = context.get("status")
+    if status != "ok":
+        return [
+            "**News context:**",
+            "- News context unavailable from Yahoo Finance for this candidate.",
+            "- Note: news is report-only and does not affect ranking or scoring.",
+        ]
+
+    counts = context.get("counts") or {}
+    flags = context.get("flags") or []
+    headlines = context.get("headlines") or []
+    lines = [
+        "**News context:**",
+        (
+            f"- Headline sentiment: {context.get('overall_sentiment') or 'n/a'} "
+            f"({counts.get('positive', 0)} positive, {counts.get('negative', 0)} negative, "
+            f"{counts.get('neutral', 0)} neutral, {counts.get('mixed', 0)} mixed)."
+        ),
+        f"- Flags: {', '.join(str(flag).replace('_', ' ') for flag in flags) if flags else 'none detected'}.",
+        "- Note: headline sentiment is context only and does not affect ranking or scoring.",
+    ]
+    if headlines:
+        lines.append("- Biggest headlines:")
+        for item in headlines[:5]:
+            title = str(item.get("title") or "Untitled")
+            publisher = item.get("publisher") or "Unknown"
+            age = _headline_age(item.get("published_at"))
+            sentiment = str(item.get("sentiment") or "neutral").title()
+            link = item.get("link")
+            label = f"{sentiment}: {title} ({publisher}, {age})"
+            lines.append(f"  - [{label}]({link})" if link else f"  - {label}")
     return lines
 
 
@@ -623,6 +682,8 @@ def _deterministic_proposal(candidate: dict[str, Any]) -> str:
             "",
             *_lifecycle_details_block(candidate),
             "",
+            *_news_context_block(candidate),
+            "",
             *_metric_block(candidate),
             "",
             "**Why it screens well:**",
@@ -657,6 +718,8 @@ def _format_ollama_json(candidate: dict[str, Any], payload: dict[str, Any]) -> s
         *_setup_details_block(candidate),
         "",
         *_lifecycle_details_block(candidate),
+        "",
+        *_news_context_block(candidate),
         "",
         *_metric_block(candidate),
         "",
@@ -863,9 +926,12 @@ def generate_short_term_proposals(
     model: str,
     top: int,
     use_ollama: bool = False,
+    include_news: bool = True,
+    news_limit: int = 5,
+    news_days: int | None = 7,
 ) -> list[dict[str, Any]]:
     payload = json.loads(input_path.read_text(encoding="utf-8"))
-    candidates = payload.get("candidates", [])[:top]
+    candidates = [dict(candidate) for candidate in payload.get("candidates", [])[:top]]
     if not candidates:
         raise ValueError(f"No candidates found in {input_path}")
 
@@ -892,6 +958,12 @@ def generate_short_term_proposals(
 
     for rank, candidate in enumerate(candidates, start=1):
         print(f"Generating proposal {rank}/{len(candidates)}: {candidate.get('symbol')}")
+        if include_news:
+            candidate["news_context"] = fetch_symbol_news(
+                str(candidate.get("symbol") or ""),
+                limit=news_limit,
+                days=news_days,
+            )
         proposal = _deterministic_proposal(candidate)
         used_ollama = False
         if client is not None:
@@ -915,6 +987,7 @@ def generate_short_term_proposals(
                 "symbol": candidate.get("symbol"),
                 "name": candidate.get("name"),
                 "used_ollama": used_ollama,
+                "news_context": candidate.get("news_context") or {},
                 "proposal": proposal,
                 "source_metrics": candidate,
             }
@@ -1017,6 +1090,12 @@ SUMMARY_COLUMNS = [
     "risk_details",
     "entry_quality_flags",
     "entry_quality_details",
+    "news_sentiment",
+    "news_positive_count",
+    "news_negative_count",
+    "news_flags",
+    "news_headlines",
+    "news_context",
     "reason_codes",
     "factor_scores",
     "factor_summaries",
@@ -1038,6 +1117,19 @@ def write_metrics_summary(candidates: list[dict[str, Any]], output_path: Path) -
             row["risk_details"] = json.dumps(candidate.get("risk_details") or {}, sort_keys=True)
             row["entry_quality_flags"] = "; ".join(candidate.get("entry_quality_flags") or [])
             row["entry_quality_details"] = json.dumps(candidate.get("entry_quality_details") or {}, sort_keys=True)
+            news_context = candidate.get("news_context") or {}
+            news_counts = news_context.get("counts") if isinstance(news_context, dict) else {}
+            news_headlines = news_context.get("headlines") if isinstance(news_context, dict) else []
+            row["news_sentiment"] = news_context.get("overall_sentiment") if isinstance(news_context, dict) else None
+            row["news_positive_count"] = (news_counts or {}).get("positive", 0)
+            row["news_negative_count"] = (news_counts or {}).get("negative", 0)
+            row["news_flags"] = "; ".join(news_context.get("flags") or []) if isinstance(news_context, dict) else ""
+            row["news_headlines"] = "; ".join(
+                str(item.get("title") or "")
+                for item in (news_headlines or [])
+                if isinstance(item, dict)
+            )
+            row["news_context"] = json.dumps(news_context, sort_keys=True)
             row["reason_codes"] = "; ".join(candidate.get("reason_codes") or [])
             row["factor_scores"] = json.dumps(candidate.get("factor_scores") or {}, sort_keys=True)
             row["factor_summaries"] = "; ".join(candidate.get("factor_summaries") or [])
