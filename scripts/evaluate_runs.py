@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 
 from src.data.network import configure_ssl  # noqa: E402
 from src.models.candidate import StockMetrics  # noqa: E402
-from src.screen.scorer import score_short_term_candidates  # noqa: E402
+from src.screen.scorer import _entry_quality_model, score_short_term_candidates  # noqa: E402
 
 configure_ssl()
 
@@ -29,6 +29,11 @@ import pandas as pd  # noqa: E402
 import yfinance as yf  # noqa: E402
 
 BENCHMARKS = ("SPY", "QQQ")
+HOLD_PERIODS = (1, 3, 5)
+PAPER_TRADE_TOP_N = 10
+ENTRY_QUALITY_MIN_SCORE = 0.60
+DEFAULT_COMMISSION_RATE = 0.001
+DEFAULT_TAX_RATE = 0.30
 MIN_CALIBRATION_SAMPLES = 5
 MAX_CALIBRATION_GROUP_COVERAGE = 0.70
 STOCK_METRIC_FIELDS = {field.name for field in fields(StockMetrics)}
@@ -108,29 +113,39 @@ def bucket_risk(value: float | None) -> str:
 
 
 def summarize_group(items: list[dict[str, Any]]) -> dict[str, Any]:
-    forward_1d = [item["forward_return_1d"] for item in items if item["forward_return_1d"] is not None]
-    forward_5d = [item["forward_return_5d"] for item in items if item["forward_return_5d"] is not None]
-    rel_spy_1d = [item["relative_spy_forward_1d"] for item in items if item["relative_spy_forward_1d"] is not None]
-    rel_spy_5d = [item["relative_spy_forward_5d"] for item in items if item["relative_spy_forward_5d"] is not None]
-    rel_qqq_1d = [item["relative_qqq_forward_1d"] for item in items if item["relative_qqq_forward_1d"] is not None]
-    rel_qqq_5d = [item["relative_qqq_forward_5d"] for item in items if item["relative_qqq_forward_5d"] is not None]
+    forward_1d = [item["forward_return_1d"] for item in items if item.get("forward_return_1d") is not None]
+    forward_3d = [item["forward_return_3d"] for item in items if item.get("forward_return_3d") is not None]
+    forward_5d = [item["forward_return_5d"] for item in items if item.get("forward_return_5d") is not None]
+    rel_spy_1d = [item["relative_spy_forward_1d"] for item in items if item.get("relative_spy_forward_1d") is not None]
+    rel_spy_3d = [item["relative_spy_forward_3d"] for item in items if item.get("relative_spy_forward_3d") is not None]
+    rel_spy_5d = [item["relative_spy_forward_5d"] for item in items if item.get("relative_spy_forward_5d") is not None]
+    rel_qqq_1d = [item["relative_qqq_forward_1d"] for item in items if item.get("relative_qqq_forward_1d") is not None]
+    rel_qqq_3d = [item["relative_qqq_forward_3d"] for item in items if item.get("relative_qqq_forward_3d") is not None]
+    rel_qqq_5d = [item["relative_qqq_forward_5d"] for item in items if item.get("relative_qqq_forward_5d") is not None]
     return {
         "count": len(items),
         "hit_rate_1d": hit_rate(forward_1d),
+        "hit_rate_3d": hit_rate(forward_3d),
         "hit_rate_5d": hit_rate(forward_5d),
         "hit_rate_vs_spy_1d": hit_rate(rel_spy_1d),
+        "hit_rate_vs_spy_3d": hit_rate(rel_spy_3d),
         "hit_rate_vs_spy_5d": hit_rate(rel_spy_5d),
         "hit_rate_vs_qqq_1d": hit_rate(rel_qqq_1d),
+        "hit_rate_vs_qqq_3d": hit_rate(rel_qqq_3d),
         "hit_rate_vs_qqq_5d": hit_rate(rel_qqq_5d),
         "avg_forward_return_1d": mean(forward_1d),
+        "avg_forward_return_3d": mean(forward_3d),
         "avg_forward_return_5d": mean(forward_5d),
         "median_forward_return_1d": median(forward_1d),
+        "median_forward_return_3d": median(forward_3d),
         "median_forward_return_5d": median(forward_5d),
         "downside_rate_5d": downside_rate(forward_5d),
         "avg_relative_spy_forward_1d": mean(rel_spy_1d),
+        "avg_relative_spy_forward_3d": mean(rel_spy_3d),
         "avg_relative_spy_forward_5d": mean(rel_spy_5d),
         "median_relative_spy_forward_5d": median(rel_spy_5d),
         "avg_relative_qqq_forward_1d": mean(rel_qqq_1d),
+        "avg_relative_qqq_forward_3d": mean(rel_qqq_3d),
         "avg_relative_qqq_forward_5d": mean(rel_qqq_5d),
     }
 
@@ -165,6 +180,12 @@ def _candidate_groups(item: dict[str, Any]) -> list[str]:
         groups.append(f"reason_code:{code}")
     for flag in item.get("risk_flags") or []:
         groups.append(f"risk_flag:{flag}")
+    entry_score = safe_float(item.get("entry_quality_score"))
+    groups.append(f"entry_quality:{_factor_bucket(entry_score)}")
+    for flag in item.get("entry_quality_flags") or []:
+        if str(flag).startswith("entry check failed:"):
+            failed_check = str(flag).split(":", 1)[1].split("(", 1)[0].strip()
+            groups.append(f"entry_check_failed:{failed_check}")
 
     factor_scores = item.get("factor_scores") or {}
     if isinstance(factor_scores, dict):
@@ -283,6 +304,247 @@ def build_calibration_suggestions(
     }
 
 
+def _avg_winner(values: list[float]) -> float | None:
+    return mean([value for value in values if value > 0])
+
+
+def _avg_loser(values: list[float]) -> float | None:
+    return mean([value for value in values if value < 0])
+
+
+def _net_trade_return(
+    gross_return: float,
+    *,
+    commission_rate: float,
+    tax_rate: float,
+) -> dict[str, float]:
+    commission_cost = commission_rate * 2
+    after_commission = gross_return - commission_cost
+    tax_cost = after_commission * tax_rate if after_commission > 0 else 0.0
+    return {
+        "gross_return": gross_return,
+        "commission_cost": commission_cost,
+        "tax_cost": tax_cost,
+        "net_return": after_commission - tax_cost,
+    }
+
+
+def _paper_trade_horizon_summary(
+    selected: list[dict[str, Any]],
+    *,
+    hold_days: int,
+    benchmark_forward: dict[str, dict[str, float | None]],
+    commission_rate: float,
+    tax_rate: float,
+) -> dict[str, Any]:
+    key = f"forward_return_{hold_days}d"
+    trade_returns = [
+        _net_trade_return(
+            value,
+            commission_rate=commission_rate,
+            tax_rate=tax_rate,
+        )
+        for item in selected
+        if (value := safe_float(item.get(key))) is not None
+    ]
+    gross_returns = [item["gross_return"] for item in trade_returns]
+    net_returns = [item["net_return"] for item in trade_returns]
+    portfolio_return = mean(net_returns)
+    gross_portfolio_return = mean(gross_returns)
+    spy_return = benchmark_forward.get("SPY", {}).get(f"{hold_days}d")
+    qqq_return = benchmark_forward.get("QQQ", {}).get(f"{hold_days}d")
+    return {
+        "hold_days": hold_days,
+        "positions": len(net_returns),
+        "equal_weight_return": portfolio_return,
+        "gross_equal_weight_return": gross_portfolio_return,
+        "average_commission_cost": mean([item["commission_cost"] for item in trade_returns]),
+        "average_tax_cost": mean([item["tax_cost"] for item in trade_returns]),
+        "spy_return": spy_return,
+        "qqq_return": qqq_return,
+        "relative_spy_return": (
+            portfolio_return - spy_return
+            if portfolio_return is not None and spy_return is not None
+            else None
+        ),
+        "relative_qqq_return": (
+            portfolio_return - qqq_return
+            if portfolio_return is not None and qqq_return is not None
+            else None
+        ),
+        "win_rate": hit_rate(net_returns),
+        "average_winner": _avg_winner(net_returns),
+        "average_loser": _avg_loser(net_returns),
+        "worst_position_return": min(net_returns) if net_returns else None,
+    }
+
+
+def _paper_trade_strategy(
+    candidates: list[dict[str, Any]],
+    *,
+    benchmark_forward: dict[str, dict[str, float | None]],
+    top_n: int,
+    commission_rate: float,
+    tax_rate: float,
+) -> dict[str, Any]:
+    selected = candidates[:top_n]
+    return {
+        "top_n": top_n,
+        "selected_symbols": [item["symbol"] for item in selected],
+        "average_entry_quality_score": mean(
+            [
+                value
+                for item in selected
+                if (value := safe_float(item.get("entry_quality_score"))) is not None
+            ]
+        ),
+        "average_risk_score": mean(
+            [
+                value
+                for item in selected
+                if (value := safe_float(item.get("risk_score"))) is not None
+            ]
+        ),
+        "horizons": {
+            f"{hold_days}d": _paper_trade_horizon_summary(
+                selected,
+                hold_days=hold_days,
+                benchmark_forward=benchmark_forward,
+                commission_rate=commission_rate,
+                tax_rate=tax_rate,
+            )
+            for hold_days in HOLD_PERIODS
+        },
+    }
+
+
+def build_paper_trade_summary(
+    evaluations: list[dict[str, Any]],
+    benchmark_forward: dict[str, dict[str, float | None]],
+    *,
+    top_n: int = PAPER_TRADE_TOP_N,
+    min_entry_quality: float = ENTRY_QUALITY_MIN_SCORE,
+    commission_rate: float = DEFAULT_COMMISSION_RATE,
+    tax_rate: float = DEFAULT_TAX_RATE,
+) -> dict[str, Any]:
+    ranked = sorted(evaluations, key=lambda item: item.get("rank") or 999_999)
+    entry_qualified = [
+        item
+        for item in ranked
+        if (safe_float(item.get("entry_quality_score")) or 0.0) >= min_entry_quality
+    ]
+    return {
+        "assumptions": {
+            "entry": "buy selected names at saved run close/current_price",
+            "sizing": "equal weight",
+            "top_n": top_n,
+            "hold_days": list(HOLD_PERIODS),
+            "entry_quality_min_score": min_entry_quality,
+            "commission_rate_per_side": commission_rate,
+            "round_trip_commission_rate": commission_rate * 2,
+            "tax_rate_on_positive_profit_after_commission": tax_rate,
+        },
+        "strategies": {
+            "top_10": _paper_trade_strategy(
+                ranked,
+                benchmark_forward=benchmark_forward,
+                top_n=top_n,
+                commission_rate=commission_rate,
+                tax_rate=tax_rate,
+            ),
+            "entry_quality_top_10": _paper_trade_strategy(
+                entry_qualified,
+                benchmark_forward=benchmark_forward,
+                top_n=top_n,
+                commission_rate=commission_rate,
+                tax_rate=tax_rate,
+            ),
+        },
+    }
+
+
+def _max_drawdown(returns: list[float]) -> float | None:
+    if not returns:
+        return None
+    equity = 1.0
+    peak = 1.0
+    max_dd = 0.0
+    for value in returns:
+        equity *= 1 + value
+        peak = max(peak, equity)
+        if peak > 0:
+            max_dd = min(max_dd, equity / peak - 1)
+    return max_dd
+
+
+def _turnover(symbol_sets: list[set[str]]) -> float | None:
+    if len(symbol_sets) < 2:
+        return None
+    values: list[float] = []
+    for previous, current in zip(symbol_sets, symbol_sets[1:]):
+        if not current:
+            continue
+        values.append(1 - len(previous & current) / len(current))
+    return mean(values)
+
+
+def aggregate_paper_trades(results: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered = sorted(results, key=lambda result: result.get("generated_at") or "")
+    aggregate: dict[str, Any] = {}
+    for strategy in ("top_10", "entry_quality_top_10"):
+        symbol_sets = [
+            set(
+                ((result.get("paper_trade") or {}).get("strategies") or {})
+                .get(strategy, {})
+                .get("selected_symbols", [])
+            )
+            for result in ordered
+        ]
+        strategy_summary: dict[str, Any] = {
+            "runs": len(ordered),
+            "average_turnover": _turnover(symbol_sets),
+            "horizons": {},
+        }
+        for hold_days in HOLD_PERIODS:
+            horizon_key = f"{hold_days}d"
+            run_returns: list[float] = []
+            relative_spy: list[float] = []
+            relative_qqq: list[float] = []
+            for result in ordered:
+                horizon = (
+                    ((result.get("paper_trade") or {}).get("strategies") or {})
+                    .get(strategy, {})
+                    .get("horizons", {})
+                    .get(horizon_key, {})
+                )
+                if (value := safe_float(horizon.get("equal_weight_return"))) is not None:
+                    run_returns.append(value)
+                if (value := safe_float(horizon.get("relative_spy_return"))) is not None:
+                    relative_spy.append(value)
+                if (value := safe_float(horizon.get("relative_qqq_return"))) is not None:
+                    relative_qqq.append(value)
+            strategy_summary["horizons"][horizon_key] = {
+                "completed_runs": len(run_returns),
+                "average_return": mean(run_returns),
+                "median_return": median(run_returns),
+                "win_rate": hit_rate(run_returns),
+                "average_winner": _avg_winner(run_returns),
+                "average_loser": _avg_loser(run_returns),
+                "max_drawdown": _max_drawdown(run_returns),
+                "average_relative_spy_return": mean(relative_spy),
+                "average_relative_qqq_return": mean(relative_qqq),
+                "beat_spy_rate": hit_rate(relative_spy),
+                "beat_qqq_rate": hit_rate(relative_qqq),
+            }
+        aggregate[strategy] = strategy_summary
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "run_count": len(ordered),
+        "strategies": aggregate,
+        "note": "Paper trading assumes equal-weight buys at each saved run close/current_price. Returns are net of configured commission and tax assumptions. Max drawdown is calculated from the sequence of evaluated run-level portfolio returns.",
+    }
+
+
 def _stock_metrics_from_candidate(candidate: dict[str, Any]) -> StockMetrics:
     values = {
         name: candidate.get(name)
@@ -303,6 +565,22 @@ def _stock_metrics_from_candidate(candidate: dict[str, Any]) -> StockMetrics:
     values.setdefault("free_cashflow", candidate.get("free_cashflow"))
     values.setdefault("current_price", candidate.get("current_price"))
     return StockMetrics(**values)
+
+
+def _entry_quality_from_candidate(candidate: dict[str, Any]) -> tuple[float | None, list[str], dict[str, Any]]:
+    saved_score = safe_float(candidate.get("entry_quality_score"))
+    saved_details = candidate.get("entry_quality_details")
+    saved_flags = candidate.get("entry_quality_flags")
+    if saved_score is not None and isinstance(saved_details, dict):
+        return (
+            saved_score,
+            saved_flags if isinstance(saved_flags, list) else [],
+            saved_details,
+        )
+    try:
+        return _entry_quality_model(_stock_metrics_from_candidate(candidate))
+    except Exception:
+        return None, [], {}
 
 
 def _validate_config_on_run(
@@ -349,7 +627,13 @@ def _validate_config_on_run(
     }
 
 
-def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = None) -> dict[str, Any]:
+def evaluate_run(
+    run_dir: Path,
+    *,
+    validation_config: dict[str, Any] | None = None,
+    commission_rate: float = DEFAULT_COMMISSION_RATE,
+    tax_rate: float = DEFAULT_TAX_RATE,
+) -> dict[str, Any]:
     screen_path = run_dir / "screen_results.json"
     if not screen_path.exists():
         raise FileNotFoundError(f"Missing {screen_path}")
@@ -381,6 +665,7 @@ def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = No
         entry = last_close_on_or_before(closes, generated_at) if not closes.empty else None
         benchmark_forward[benchmark] = {
             "1d": pct_return(entry, forward_close(closes, generated_at, 1)),
+            "3d": pct_return(entry, forward_close(closes, generated_at, 3)),
             "5d": pct_return(entry, forward_close(closes, generated_at, 5)),
         }
 
@@ -389,19 +674,25 @@ def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = No
         frame = symbol_frame(history, candidate["symbol"])
         if frame.empty or "Close" not in frame:
             close_1d = None
+            close_3d = None
             close_5d = None
         else:
             closes = frame["Close"].dropna().astype(float)
             close_1d = forward_close(closes, generated_at, 1)
+            close_3d = forward_close(closes, generated_at, 3)
             close_5d = forward_close(closes, generated_at, 5)
 
         entry = safe_float(candidate.get("current_price"))
         forward_1d = pct_return(entry, close_1d)
+        forward_3d = pct_return(entry, close_3d)
         forward_5d = pct_return(entry, close_5d)
         spy_1d = benchmark_forward["SPY"]["1d"]
+        spy_3d = benchmark_forward["SPY"]["3d"]
         spy_5d = benchmark_forward["SPY"]["5d"]
         qqq_1d = benchmark_forward["QQQ"]["1d"]
+        qqq_3d = benchmark_forward["QQQ"]["3d"]
         qqq_5d = benchmark_forward["QQQ"]["5d"]
+        entry_quality_score, entry_quality_flags, entry_quality_details = _entry_quality_from_candidate(candidate)
 
         evaluations.append(
             {
@@ -410,19 +701,28 @@ def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = No
                 "name": candidate.get("name"),
                 "entry_price": entry,
                 "forward_close_1d": close_1d,
+                "forward_close_3d": close_3d,
                 "forward_close_5d": close_5d,
                 "forward_return_1d": forward_1d,
+                "forward_return_3d": forward_3d,
                 "forward_return_5d": forward_5d,
                 "relative_spy_forward_1d": forward_1d - spy_1d if forward_1d is not None and spy_1d is not None else None,
+                "relative_spy_forward_3d": forward_3d - spy_3d if forward_3d is not None and spy_3d is not None else None,
                 "relative_spy_forward_5d": forward_5d - spy_5d if forward_5d is not None and spy_5d is not None else None,
                 "relative_qqq_forward_1d": forward_1d - qqq_1d if forward_1d is not None and qqq_1d is not None else None,
+                "relative_qqq_forward_3d": forward_3d - qqq_3d if forward_3d is not None and qqq_3d is not None else None,
                 "relative_qqq_forward_5d": forward_5d - qqq_5d if forward_5d is not None and qqq_5d is not None else None,
                 "score": candidate.get("score"),
+                "final_rank_score": candidate.get("final_rank_score"),
                 "opportunity_score": candidate.get("opportunity_score"),
                 "risk_score": candidate.get("risk_score"),
                 "risk_details": candidate.get("risk_details") or {},
+                "entry_quality_score": entry_quality_score,
+                "entry_quality_flags": entry_quality_flags,
+                "entry_quality_details": entry_quality_details,
                 "factor_scores": candidate.get("factor_scores") or {},
                 "setup_details": candidate.get("setup_details") or {},
+                "lifecycle_details": candidate.get("lifecycle_details") or {},
                 "confidence_score": candidate.get("confidence_score"),
                 "expected_direction": candidate.get("expected_direction"),
                 "setup_type": candidate.get("setup_type"),
@@ -438,6 +738,12 @@ def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = No
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark_forward": benchmark_forward,
         "summary": summary,
+        "paper_trade": build_paper_trade_summary(
+            evaluations,
+            benchmark_forward,
+            commission_rate=commission_rate,
+            tax_rate=tax_rate,
+        ),
         "calibration": build_calibration_suggestions(evaluations),
         "candidates": evaluations,
     }
@@ -461,13 +767,43 @@ def evaluate_run(run_dir: Path, *, validation_config: dict[str, Any] | None = No
     return result
 
 
+def _run_generated_at(run_dir: Path) -> datetime | None:
+    screen_path = run_dir / "screen_results.json"
+    if not screen_path.exists():
+        return None
+    try:
+        payload = json.loads(screen_path.read_text(encoding="utf-8"))
+        generated_at = payload.get("generated_at")
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(generated_at, str):
+        return None
+    try:
+        return parse_datetime(generated_at)
+    except ValueError:
+        return None
+
+
 def run_dirs_from_args(args: argparse.Namespace) -> list[Path]:
     if args.run_dir:
         return [args.run_dir]
     runs_root = ROOT / "outputs" / "runs"
     if not runs_root.exists():
         return []
-    return sorted(path for path in runs_root.iterdir() if path.is_dir())
+    paths = sorted(
+        (path for path in runs_root.iterdir() if path.is_dir()),
+        key=lambda path: _run_generated_at(path) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    if args.last_days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=args.last_days)
+        paths = [
+            path
+            for path in paths
+            if (generated_at := _run_generated_at(path)) is not None and generated_at >= cutoff
+        ]
+    if args.last_runs is not None:
+        paths = paths[-args.last_runs:]
+    return paths
 
 
 def main() -> int:
@@ -475,6 +811,30 @@ def main() -> int:
         description="Evaluate run folders against 1-day and 5-day forward returns."
     )
     parser.add_argument("--run-dir", type=Path, default=None, help="Specific outputs/runs/<timestamp> folder.")
+    parser.add_argument(
+        "--last-days",
+        type=float,
+        default=None,
+        help="Only evaluate run folders generated within the last N days.",
+    )
+    parser.add_argument(
+        "--last-runs",
+        type=int,
+        default=None,
+        help="Only evaluate the most recent N run folders.",
+    )
+    parser.add_argument(
+        "--commission-rate",
+        type=float,
+        default=DEFAULT_COMMISSION_RATE,
+        help="Commission rate per side used by paper trading (default: 0.001 = 0.10%).",
+    )
+    parser.add_argument(
+        "--tax-rate",
+        type=float,
+        default=DEFAULT_TAX_RATE,
+        help="Tax rate applied to positive trade profit after commission (default: 0.30).",
+    )
     parser.add_argument(
         "--validate-config",
         type=Path,
@@ -492,20 +852,36 @@ def main() -> int:
         return 1
 
     completed = 0
+    results: list[dict[str, Any]] = []
     for run_dir in run_dirs:
         try:
-            result = evaluate_run(run_dir, validation_config=validation_config)
+            result = evaluate_run(
+                run_dir,
+                validation_config=validation_config,
+                commission_rate=args.commission_rate,
+                tax_rate=args.tax_rate,
+            )
         except Exception as exc:
             print(f"Skipping {run_dir}: {exc}")
             continue
         completed += 1
+        results.append(result)
         summary = result["summary"]
+        paper_5d = (
+            result.get("paper_trade", {})
+            .get("strategies", {})
+            .get("top_10", {})
+            .get("horizons", {})
+            .get("5d", {})
+        )
         print(
             f"{run_dir.name}: "
             f"1D hit={summary.get('hit_rate_1d')} "
+            f"3D hit={summary.get('hit_rate_3d')} "
             f"5D hit={summary.get('hit_rate_5d')} "
             f"avg5D={summary.get('avg_forward_return_5d')} "
-            f"relSPY5D={summary.get('avg_relative_spy_forward_5d')}"
+            f"relSPY5D={summary.get('avg_relative_spy_forward_5d')} "
+            f"paperTop10_5D={paper_5d.get('equal_weight_return')}"
         )
         if "config_validation" in result:
             validation = result["config_validation"]
@@ -513,6 +889,13 @@ def main() -> int:
                 f"  config validation delta relSPY5D="
                 f"{validation.get('delta_avg_relative_spy_forward_5d')}"
             )
+
+    if results:
+        aggregate = aggregate_paper_trades(results)
+        summary_path = ROOT / "outputs" / "paper_trade_summary.json"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(aggregate, indent=2), encoding="utf-8")
+        print(f"Saved paper-trade summary to {summary_path}")
 
     return 0 if completed else 1
 

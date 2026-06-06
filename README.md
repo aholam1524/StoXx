@@ -195,14 +195,28 @@ Evaluate one specific run:
 python scripts\evaluate_runs.py --run-dir outputs\runs\YYYY-MM-DD_HH-MM-SS_utc_all
 ```
 
+Evaluate only recent runs:
+
+```powershell
+python scripts\evaluate_runs.py --last-days 5
+python scripts\evaluate_runs.py --last-runs 5
+```
+
+Paper-trade returns use default costs of 0.10% commission per side and 30% tax on positive profit after commission. Override them if needed:
+
+```powershell
+python scripts\evaluate_runs.py --last-days 5 --commission-rate 0.001 --tax-rate 0.30
+```
+
 This writes:
 
 ```text
 outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/backtest_result.json
 outputs/runs/YYYY-MM-DD_HH-MM-SS_utc_all/calibration_suggestions.json
+outputs/paper_trade_summary.json
 ```
 
-Use `calibration_suggestions.json` to decide which short-term scoring weights or risk penalties should be increased or reduced after enough completed runs exist.
+`backtest_result.json` includes candidate-level 1D/3D/5D forward returns plus net paper-trade simulations for equal-weight top-10 portfolios. `paper_trade_summary.json` aggregates evaluated runs with win rate, average winner/loser, drawdown, turnover, and SPY/QQQ comparisons. Use `calibration_suggestions.json` to decide which short-term scoring weights, risk penalties, or entry-quality checks should be increased or reduced after enough completed runs exist.
 
 ## Configuration
 
