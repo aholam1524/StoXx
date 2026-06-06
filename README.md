@@ -22,13 +22,13 @@ See `outputs/proposals.md` for a committed sample generated report. Live run his
 - Recent returns: 1-day, 5-day, 10-day, and 20-day returns.
 - Trend structure: 5-day average versus 20-day average, close versus 20-day average, and 5-day/10-day up-day ratios.
 - Range position: distance from 5-day and 20-day highs/lows, plus close location inside the 1-day, 5-day, and 20-day ranges.
-- Benchmark context: relative strength versus `SPY` and `QQQ` across multiple windows.
-- Sector context: relative strength versus the median return of same-sector names in the screened universe.
-- Market regime: broad `SPY`/`QQQ` backdrop score and regime label.
+- Benchmark context: ratio-based relative strength versus `SPY` and `QQQ` across multiple windows.
+- Sector context: ratio-based relative strength versus the median return of same-sector names in the screened universe.
+- Market regime: broad `SPY`/`QQQ` backdrop score and regime label with dynamic factor weighting.
 - Volume participation: 5-day and 20-day relative volume, 5-day volume trend versus 20-day volume, elevated-volume persistence, and latest-volume z-score.
 - Volume quality: up-volume/down-volume ratio, volume acceleration, price/volume efficiency, effort-versus-result, and distribution-day count.
 - Liquidity context: dollar volume and liquidity tier.
-- Extension and volatility: RSI 14, ATR 14 as percent of price, gap from previous close to latest open, and stretch versus ATR.
+- Extension and volatility: RSI 14 (Wilder's smoothed), ATR 14 (Wilder's smoothed) as percent of price, gap from previous close to latest open, and stretch versus ATR.
 - Failure detectors: failed gap or intraday fade, relative-strength decoupling, and distribution pressure.
 - Setup diagnostics: scores for trend confirmation, momentum continuation, breakout watch, and pullback risk.
 - Lifecycle diagnostics: heuristic phase scores for ignition, expansion, euphoria, exhaustion, and reversal, plus continuation/mean-reversion/volatility-expansion probabilities.
@@ -278,3 +278,4 @@ Workflows:
 The CI checks install dependencies, compile the Python files, and run lightweight smoke tests. They intentionally do not run the live screener or Ollama because Yahoo/Wikipedia can rate-limit and Ollama is local to your PC.
 
 The release workflow uploads `stock-agent-source.zip` as a GitHub Actions artifact. The package excludes generated outputs, caches, virtual environments, and local secret files.
+ents, and local secret files.

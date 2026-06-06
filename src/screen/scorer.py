@@ -205,45 +205,66 @@ def score_candidates(
     return results
 
 
-def _factor_weights(scoring: dict[str, Any]) -> dict[str, float]:
+def _factor_weights(scoring: dict[str, Any], regime: str | None = None) -> dict[str, float]:
     factor_weights = scoring.get("factor_weights")
     if isinstance(factor_weights, dict):
-        return {
+        weights = {
             "trend": float(factor_weights.get("trend", 0.25)),
             "momentum": float(factor_weights.get("momentum", 0.15)),
             "relative_strength": float(factor_weights.get("relative_strength", 0.25)),
             "participation": float(factor_weights.get("participation", 0.20)),
             "extension": float(factor_weights.get("extension", 0.15)),
         }
+    else:
+        # Backward-compatible defaults for older flat signal configs.
+        weights = {
+            "trend": (
+                float(scoring.get("return_20d", 0.05))
+                + float(scoring.get("sma_5_20_ratio", 0.08))
+                + float(scoring.get("close_vs_sma_20", 0.06))
+                + float(scoring.get("up_day_ratio_5d", 0.07))
+                + float(scoring.get("up_day_ratio_10d", 0.05))
+                + float(scoring.get("near_5d_high", 0.08))
+                + float(scoring.get("near_20d_high", 0.05))
+            ),
+            "momentum": (
+                float(scoring.get("return_1d", 0.20))
+                + float(scoring.get("return_5d", 0.25))
+                + float(scoring.get("return_10d", 0.10))
+            ),
+            "relative_strength": (
+                float(scoring.get("relative_spy_5d", 0.14))
+                + float(scoring.get("relative_qqq_5d", 0.10))
+            ),
+            "participation": (
+                float(scoring.get("volume_ratio_5d", 0.18))
+                + float(scoring.get("volume_ratio_20d", 0.10))
+                + float(scoring.get("volume_trend_5d_20d", 0.06))
+                + float(scoring.get("dollar_volume", 0.04))
+            ),
+            "extension": float(scoring.get("rsi_14", 0.10)),
+        }
 
-    # Backward-compatible defaults for older flat signal configs.
-    return {
-        "trend": (
-            float(scoring.get("return_20d", 0.05))
-            + float(scoring.get("sma_5_20_ratio", 0.08))
-            + float(scoring.get("close_vs_sma_20", 0.06))
-            + float(scoring.get("up_day_ratio_5d", 0.07))
-            + float(scoring.get("up_day_ratio_10d", 0.05))
-            + float(scoring.get("near_5d_high", 0.08))
-            + float(scoring.get("near_20d_high", 0.05))
-        ),
-        "momentum": (
-            float(scoring.get("return_1d", 0.20))
-            + float(scoring.get("return_5d", 0.25))
-            + float(scoring.get("return_10d", 0.10))
-        ),
-        "relative_strength": (
-            float(scoring.get("relative_spy_5d", 0.14))
-            + float(scoring.get("relative_qqq_5d", 0.10))
-        ),
-        "participation": (
-            float(scoring.get("volume_ratio_5d", 0.18))
-            + float(scoring.get("volume_ratio_20d", 0.10))
-            + float(scoring.get("volume_trend_5d_20d", 0.06))
-            + float(scoring.get("dollar_volume", 0.04))
-        ),
-        "extension": float(scoring.get("rsi_14", 0.10)),
-    }
+    if regime:
+        regime_lower = regime.lower()
+        if "supportive" in regime_lower:
+            weights["momentum"] *= 1.3
+            weights["relative_strength"] *= 1.2
+            weights["extension"] *= 0.8
+        elif "weak" in regime_lower:
+            weights["extension"] *= 1.5
+            weights["trend"] *= 1.2
+            weights["momentum"] *= 0.6
+        elif "mixed" in regime_lower:
+            weights["trend"] *= 1.1
+            weights["participation"] *= 1.1
+
+    # Normalize weights
+    weight_sum = sum(weights.values())
+    if weight_sum > 0:
+        weights = {k: v / weight_sum for k, v in weights.items()}
+
+    return weights
 
 
 FACTOR_COMPONENT_DEFAULTS: dict[str, dict[str, float]] = {
@@ -570,7 +591,7 @@ def _factor_model(
         _factor_summary(name, row, details)
         for name, details in factor_details.items()
     ]
-    opportunity_score = _weighted_score(raw_scores, _factor_weights(scoring))
+    opportunity_score = _weighted_score(raw_scores, _factor_weights(scoring, row.market_regime_label))
     return opportunity_score, factor_scores, summaries, factor_details
 
 
@@ -1306,3 +1327,4 @@ def _short_term_prediction(
         expected_direction = "neutral/watch"
 
     return confidence, expected_direction
+
