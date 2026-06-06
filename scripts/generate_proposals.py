@@ -139,6 +139,23 @@ def main() -> int:
         action="store_true",
         help="Try local Ollama wording; unsafe outputs fall back to fact-only notes.",
     )
+    parser.add_argument(
+        "--no-news",
+        action="store_true",
+        help="Skip Yahoo Finance news context in proposals.",
+    )
+    parser.add_argument(
+        "--news-limit",
+        type=int,
+        default=5,
+        help="Maximum recent Yahoo Finance headlines per candidate (default: 5).",
+    )
+    parser.add_argument(
+        "--news-days",
+        type=int,
+        default=7,
+        help="Only include Yahoo Finance headlines from the last N days (default: 7).",
+    )
     args = parser.parse_args()
     input_path, output_md, output_json, output_csv = resolve_run_paths(
         input_path=args.input,
@@ -156,6 +173,9 @@ def main() -> int:
         model=args.model,
         top=args.top,
         use_ollama=args.use_ollama,
+        include_news=not args.no_news,
+        news_limit=args.news_limit,
+        news_days=args.news_days,
     )
     update_latest(input_path, output_md, output_json, output_csv)
     print(f"Generated {len(proposals)} proposals.")

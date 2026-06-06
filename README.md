@@ -173,6 +173,13 @@ python scripts\generate_proposals.py --top 10
 
 This also creates a new `outputs/runs/<timestamp>/` proposal history folder and updates `outputs/latest/`.
 
+Proposal generation adds Yahoo Finance headline context for the proposal candidates by default. The news sentiment is report-only and does not affect rank, risk, paper trading, or calibration:
+
+```powershell
+python scripts\generate_proposals.py --top 10 --news-limit 5 --news-days 7
+python scripts\generate_proposals.py --top 10 --no-news
+```
+
 By default, proposals are deterministic and fact-only. Optional Ollama wording can be tested with:
 
 ```powershell
